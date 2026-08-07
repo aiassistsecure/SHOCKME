@@ -29,6 +29,13 @@ export const CONFIG = {
    * you are actually in.
    */
   imagine: flag('SHOCKME_IMAGINE', true),
+
+  /**
+   * SHOCKME_CHAT — visitors speaking into the room. DEFAULT ON.
+   * This is the one switch that turns off anonymous public text instantly,
+   * without a deploy. Set 0 and restart if the room is being abused.
+   */
+  chat: flag('SHOCKME_CHAT', true),
   imagineUrl: process.env.IMAGINE_URL ?? 'http://127.0.0.1:8081',
 
   worldSeed: process.env.SHOCKME_WORLD_SEED ?? 'the-room-remembers',
@@ -51,6 +58,8 @@ export function banner(imagine: ImagineStatus, extra: string[] = []): void {
     ['engine', `${CONFIG.nedbUrl}  ${D}db=${CONFIG.nedbDb}${X}`],
     ['origin', `${D}${CONFIG.origin}${X}`],
   ];
+
+  rows.push(['voices', CONFIG.chat ? `${G}open${X} ${D}visitors can speak${X}` : `${D}closed (SHOCKME_CHAT=0)${X}`]);
 
   if (imagine === 'on') {
     rows.push(['voice', `${G}imagine${X}  ${D}${CONFIG.imagineUrl}${X}`]);

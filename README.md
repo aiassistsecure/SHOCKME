@@ -115,14 +115,42 @@ pip install nedb-engine     # once
 
 Then open **http://127.0.0.1:3400**
 
-### The one flag
+### Speaking
+
+Visitors can type into the room. A human line is rendered **identically** to a
+generated one — same handle pool, same styling, same rail — so "is that a
+person?" stays unanswerable. That ambiguity is the feature; a chat widget that
+announces itself as a chat widget would flatten the room into a lobby.
+
+Screening is deterministic and auditable, never a model. `imagine` cannot help
+here (0.8B, and its own SPEC scores argument construction 2/7), so it is
+regexes you can read rather than a classifier you have to trust:
+
+| | |
+|---|---|
+| length | 2–90 chars |
+| links / handles / long digit runs | blocked |
+| shouting | blocked |
+| slurs + evasion | folded through unicode/leetspeak/spacing normalisation first, so `n i g g e r` and `ret@rd` both catch |
+| rate | 1 per 9s, 12 per session |
+
+Rejections speak in character — *"The room does not pass along addresses. It
+never has."* — never as a validation error.
+
+```bash
+node --experimental-strip-types packages/engine/test/chat.test.ts   # 18 assertions
+```
+
+### The flags
 
 `SHOCKME_IMAGINE` — **default ON**.
 
 | | |
 |---|---|
 | `SHOCKME_IMAGINE=1` (default) | ambient chat written live by the local `imagine` model |
-| `SHOCKME_IMAGINE=0` | ambient chat from the 20-line curated corpus |
+| `SHOCKME_IMAGINE=0` | ambient chat from the 58-line curated corpus |
+| `SHOCKME_CHAT=1` (default) | visitors can speak into the room |
+| `SHOCKME_CHAT=0` | the room is read-only — kill switch, no deploy needed |
 
 If the flag is on and nothing is listening on `:8081`, SHOCKME **does not
 die and does not pretend**: it prints a loud yellow banner, falls back to the

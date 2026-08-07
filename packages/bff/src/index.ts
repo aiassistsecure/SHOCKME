@@ -26,7 +26,8 @@ import { CONFIG, banner, type ImagineStatus } from './config.ts';
 import { Rng } from '../../engine/src/rng.ts';
 import { AMBIENT } from '../../engine/src/world.ts';
 import { Imagine } from '../../engine/src/imagine.ts';
-import { currentTick, inhabitantsAt, observeLine, type ObservedLine } from '../../engine/src/world.ts';
+import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, type ObservedLine } from '../../engine/src/world.ts';
+import { screen, decline, rateCheck, noteSpoke, handleFor, MAX_LEN, type Utterance } from '../../engine/src/chat.ts';
 
 const PORT = CONFIG.port;
 const repo = new Repo(new Nedb({ url: CONFIG.nedbUrl, db: CONFIG.nedbDb }));
@@ -94,6 +95,21 @@ function startPump(): void {
     } catch { /* pump failure is never fatal; corpus covers it */ }
     finally { running = false; }
   }, 400);
+}
+
+/* ---------------- live voices ---------------- */
+
+/**
+ * Recent human lines, kept in memory for the stream and written through to
+ * NEDB for the record. A human utterance is rendered EXACTLY like a generated
+ * one — same handle pool, same markup — so nobody can tell which voices in
+ * the room belong to people. That indistinguishability is the feature.
+ */
+const liveVoices: Utterance[] = [];
+const LIVE_KEEP = 120;
+
+function voicesInWindow(fromTick: number, toTick: number): Utterance[] {
+  return liveVoices.filter((u) => u.tick >= fromTick && u.tick <= toTick);
 }
 
 /* ---------------- cookies ---------------- */
@@ -170,7 +186,16 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
 
   const lastChoice = state?.history.at(-1)?.toLowerCase();
   const lines: ObservedLine[] = [];
-  for (let t = tick - 6; t <= tick; t++) lines.push(...roomLines(t, s.seed, lastChoice));
+  for (let t = tick - 6; t <= tick; t++) {
+    lines.push(...roomLines(t, s.seed, lastChoice));
+    // Human voices are NOT put through observeLine — a real person's words
+    // must reach every observer unaltered. Only the room's own lines diverge.
+    for (const u of voicesInWindow(t, t)) {
+      lines.push({ lineId: u.utteranceId, tick: u.tick, handle: u.handle,
+                   kind: 'ambient', text: u.text, diverged: false });
+    }
+  }
+  lines.sort((a, b) => a.tick - b.tick);
 
   let artifact;
   let shareToken: string | undefined;
@@ -275,9 +300,14 @@ const server = createServer(async (req, res) => {
         if (t === last || busy) return;
         last = t; busy = true;
         try {
-          for (const o of roomLines(t, s.seed)) {
-            res.write(`data: ${JSON.stringify(o)}\n\n`);
-          }
+          const out = [
+            ...roomLines(t, s.seed),
+            ...voicesInWindow(t, t).map((u) => ({
+              lineId: u.utteranceId, tick: u.tick, handle: u.handle,
+              kind: 'ambient' as const, text: u.text, diverged: false,
+            })),
+          ];
+          for (const o of out) res.write(`data: ${JSON.stringify(o)}\n\n`);
         } catch { /* the room simply stays quiet this tick */ }
         finally { busy = false; }
       }, 1000);
@@ -337,6 +367,37 @@ const server = createServer(async (req, res) => {
       const s = await repo.replaySession(ctx.sessionId, INITIAL_SCENE);
       res.setHeader('set-cookie', [...ctx.setCookies, cookie('sm_s', s.sessionId)]);
       return json(res, { ok: true, replayIndex: s.replayIndex });
+    }
+
+    /* ---- speaking into the room ---- */
+    if (path === '/bff/say' && req.method === 'POST') {
+      if (!CONFIG.chat) return json(res, { ok: false, message: 'The room is not taking words today.' }, 403);
+      const ctx = await resolveCtx(req);
+      const { text } = await body(req);
+      const raw = String(text ?? '').slice(0, MAX_LEN * 2);
+
+      const rate = rateCheck(ctx.sessionId);
+      if (!rate.ok) return json(res, { ok: false, message: rate.message });
+
+      const verdict = screen(raw);
+      if (!verdict.ok) return json(res, { ok: false, message: decline(verdict.reason) });
+
+      noteSpoke(ctx.sessionId);
+      const u: Utterance = {
+        utteranceId: `u_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        sessionId: ctx.sessionId,
+        handle: handleFor(ctx.sessionId, HANDLE_STEMS),
+        text: raw.replace(/\s+/g, ' ').trim(),
+        tick: currentTick(),
+      };
+      liveVoices.push(u);
+      while (liveVoices.length > LIVE_KEEP) liveVoices.shift();
+
+      // the record: what was said, by which session, chained to the session
+      await repo.appendExperienceEvent(ctx.sessionId, 'said', { text: u.text, handle: u.handle });
+
+      res.setHeader('set-cookie', ctx.setCookies);
+      return json(res, { ok: true, handle: u.handle });
     }
 
     /* ---- the public plane: a record anyone can open ---- */

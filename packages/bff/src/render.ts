@@ -236,6 +236,29 @@ h1{
 .line .txt{font-size:.82rem;color:#b8996d;line-height:1.45}
 .line.div .txt{color:var(--phos-hot)}
 
+/* --- speaking. not a chat widget: a line you add to the room. --- */
+.say{border-top:1px solid var(--line);padding-top:.9rem;margin-top:.4rem}
+.say form{display:flex;gap:.5rem;align-items:stretch}
+.sayin{
+  flex:1;min-width:0;appearance:none;background:transparent;border:1px solid var(--line);
+  color:var(--phos-hot);font-family:var(--mono);font-size:16px;   /* 16px: iOS zooms below it */
+  padding:.7rem .65rem;outline:none;
+  transition:border-color .3s
+}
+.sayin::placeholder{color:var(--phos-dim);opacity:.7}
+.sayin:focus{border-color:var(--phos)}
+.saygo{
+  appearance:none;background:transparent;border:1px solid var(--line);color:var(--phos);
+  font-family:var(--mono);font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;
+  padding:0 .9rem;cursor:pointer;min-width:64px;
+  transition:border-color .3s,color .3s,background .3s
+}
+.saygo:hover{border-color:var(--phos);color:var(--phos-hot);background:rgba(255,179,71,.06)}
+.saygo:disabled{opacity:.4;cursor:default}
+.saynote{font-size:.72rem;color:var(--phos-dim);margin-top:.55rem;min-height:1.3em;line-height:1.4;
+  font-family:var(--crt);font-size:1rem;letter-spacing:.02em}
+@media(max-width:860px){ .sayin{font-size:16px} }
+
 /* --- the tip jar. old web had these. it belongs here. --- */
 .jar{
   border-top:1px solid var(--line);padding-top:1rem;margin-top:auto;
@@ -341,6 +364,15 @@ function chatRail(lines: ObservedLine[]): string {
   return `<aside class="rail">
     <h2>Also here</h2>
     <div class="lines" id="lines">${items}</div>
+    <div class="say">
+      <form id="sayform" autocomplete="off">
+        <input class="sayin" id="sayin" maxlength="90" spellcheck="false"
+               placeholder="say something to the room" aria-label="say something to the room">
+        <button class="saygo" type="submit">Say</button>
+      </form>
+      <div class="saynote" id="saynote"></div>
+    </div>
+
     <div class="jar">
       this runs on a machine somebody pays for.<br>
       <a href="https://cash.app/$interchained" target="_blank" rel="noopener noreferrer">
@@ -488,6 +520,30 @@ if (notice) setInterval(async () => {
     setTimeout(()=>{notice.textContent=r.text;notice.style.opacity='1';}, 400);
   }
 }, 1500);
+
+// speaking into the room
+const sf = document.getElementById('sayform');
+if (sf) sf.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const inp = document.getElementById('sayin');
+  const note = document.getElementById('saynote');
+  const text = (inp.value || '').trim();
+  if (!text) return;
+  const btn = sf.querySelector('button'); btn.disabled = true;
+  try {
+    const r = await (await post('/bff/say', { text })).json();
+    if (r.ok) {
+      inp.value = '';
+      // Deliberately does NOT confirm 'sent'. The room acknowledges; it does
+      // not report success like a form. Your line arrives in the rail the
+      // same way everyone else's does, with no marker saying it was yours.
+      note.textContent = 'It is in the room now.';
+    } else {
+      note.textContent = r.message || 'That did not make it into the room.';
+    }
+  } catch { note.textContent = 'The room did not hear that.'; }
+  setTimeout(() => { btn.disabled = false; note.textContent = ''; }, 4000);
+});
 
 // the room keeps talking
 const lines = document.getElementById('lines');

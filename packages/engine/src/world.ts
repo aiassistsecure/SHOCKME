@@ -39,7 +39,7 @@ export const WORLD_SEED = process.env.SHOCKME_WORLD_SEED ?? 'the-room-remembers'
  * moment a bot is called "Sally" the illusion becomes fiction. These read
  * like other people who also didn't give their name.
  */
-const HANDLE_STEMS = [
+export const HANDLE_STEMS = [
   'someone', 'a visitor', 'nobody', 'a guest', 'the other one', 'a passerby',
   'anon', 'a stranger', 'not you', 'a later arrival', 'an earlier arrival',
   'a quiet one', 'the seventh', 'a returning shape', 'a held breath',
