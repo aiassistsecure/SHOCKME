@@ -531,9 +531,16 @@ export interface ArtifactView {
  */
 export function renderArtifact(v: ArtifactView): string {
   const url = `${v.origin}/a/${v.token}`;
-  const tweet = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    `"${v.title}"\n\nit gave me a different room than it gave you. mine had ${'${'}v.chairHint}.`,
-  )}&url=${encodeURIComponent(url)}`;
+  /*
+   * Shipped a literal `${v.chairHint}` into a real tweet because a scripted
+   * edit produced a broken template literal and nothing checked the OUTPUT
+   * string. Any change to this line must be verified by reading the decoded
+   * text, not by reading the source.
+   */
+  const shareText = `"${v.title}"\n\nit gave me a different room than it gave you.`;
+  const tweet =
+    `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}` +
+    `&url=${encodeURIComponent(url)}`;
 
   return `<!doctype html>
 <html lang="en"><head>
