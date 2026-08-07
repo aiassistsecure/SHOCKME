@@ -57,6 +57,7 @@ export interface Stats {
   engine: { ok: boolean; seq: number; objects: number; tampered: number };
   live: { tick: number; population: number; connections: number };
   spokenPerSession: number;
+  drawings: { total: number; blank: number; avgMs: number; subjects: { subject: string; n: number }[] };
 }
 
 const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 1000) / 10);
@@ -154,6 +155,23 @@ export async function gather(repo: Repo, connections: number): Promise<Stats> {
     },
     live: { tick: currentTick(), population: populationAt(currentTick()), connections },
     spokenPerSession: sessions.length ? Math.round((evOf('said').length / sessions.length) * 100) / 100 : 0,
+    drawings: (() => {
+      const d = evOf('drawn');
+      const subj = new Map<string, number>();
+      let ms = 0, blank = 0;
+      for (const e of d) {
+        const p = e.payload as Record<string, unknown>;
+        const key = String(p?.subject ?? '?');
+        subj.set(key, (subj.get(key) ?? 0) + 1);
+        ms += Number(p?.ms ?? 0);
+        if (p?.blank) blank++;
+      }
+      return {
+        total: d.length, blank,
+        avgMs: d.length ? Math.round(ms / d.length) : 0,
+        subjects: [...subj.entries()].map(([subject, n]) => ({ subject, n })).sort((a, b) => b.n - a.n),
+      };
+    })(),
   };
 }
 
@@ -279,6 +297,19 @@ ${s.said.length ? s.said.map((u) => `<tr><td class="sid">${esc(ago(u.tick))}</td
 <div class="note">This is the moderation view. Everything here already passed
 screening; anything that should not have is a gap in the blocklist — add it to
 <b>SHOCKME_BLOCKLIST</b> and restart.</div>
+
+<h2>The room's drawings</h2>
+${row('attempts', s.drawings.total)}
+${row('produced nothing', `${s.drawings.blank}`, `${pct(s.drawings.blank, s.drawings.total)}% — the strongest outcome`)}
+${row('average time', `${(s.drawings.avgMs / 1000).toFixed(1)}s`, 'you watch it struggle; that is the bit')}
+<table>
+<tr><th>asked to draw</th><th class="num">n</th></tr>
+${s.drawings.subjects.length ? s.drawings.subjects.map((d) => `<tr><td>${esc(d.subject)}</td><td class="num">${d.n}</td></tr>`).join('')
+  : '<tr><td colspan="2" class="sid">it has not been asked yet</td></tr>'}
+</table>
+<div class="note">A blank is not an error. Asked to draw itself, or the sound
+a lamp makes, the room producing <b>nothing</b> is the best output available —
+so blanks are counted as successes, never retried, and never repaired.</div>
 
 <h2>Engine</h2>
 ${row('verify', s.engine.ok ? 'intact' : 'FAILED', s.engine.ok ? 'hash chain unbroken' : 'investigate immediately')}

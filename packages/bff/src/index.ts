@@ -29,6 +29,7 @@ import { Imagine } from '../../engine/src/imagine.ts';
 import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, type ObservedLine } from '../../engine/src/world.ts';
 import { screen, decline, rateCheck, noteSpoke, handleFor, MAX_LEN, type Utterance } from '../../engine/src/chat.ts';
 import { adminEnabled, tokenOk, gather, renderAdmin, ADMIN_TOKEN } from './admin.ts';
+import { draw, subjectFor, type Drawing } from '../../engine/src/drawing.ts';
 
 const PORT = CONFIG.port;
 const repo = new Repo(new Nedb({ url: CONFIG.nedbUrl, db: CONFIG.nedbDb }));
@@ -122,6 +123,12 @@ const LIVE_KEEP = 120;
  * clock, because the room has a rhythm; people interrupt it.
  */
 let voiceSeq = 0;
+
+/**
+ * Drawings, per session. Generated ONCE and kept — the room does not get a
+ * second attempt at the same visitor, which is both cheaper and truer.
+ */
+const drawings = new Map<string, Drawing>();
 
 /** Open event streams == people with the room actually on screen. */
 let openStreams = 0;
@@ -401,6 +408,29 @@ const server = createServer(async (req, res) => {
       const s = await repo.replaySession(ctx.sessionId, INITIAL_SCENE);
       res.setHeader('set-cookie', [...ctx.setCookies, cookie('sm_s', s.sessionId)]);
       return json(res, { ok: true, replayIndex: s.replayIndex });
+    }
+
+    /* ---- the room tries to draw ---- */
+    if (path === '/bff/drawing') {
+      const ctx = await resolveCtx(req);
+      const sess = await repo.getSession(ctx.sessionId);
+      if (!sess) return json(res, { blank: true, caption: 'There is nobody to draw for.' });
+
+      // Once per session. Asking twice would let a visitor reroll until they
+      // got a "good" one, and the whole point is that they get what the room
+      // managed on the day.
+      let d = drawings.get(ctx.sessionId);
+      if (!d) {
+        d = CONFIG.imagine
+          ? await draw(sess.seed, CONFIG.imagineUrl)
+          : { subject: subjectFor(sess.seed), lines: [], caption: 'It was not asked today.', blank: true, ms: 0 };
+        drawings.set(ctx.sessionId, d);
+        if (drawings.size > 3000) drawings.delete(drawings.keys().next().value!);
+        await repo.appendExperienceEvent(ctx.sessionId, 'drawn', {
+          subject: d.subject, blank: d.blank, lines: d.lines.length, ms: d.ms,
+        });
+      }
+      return json(res, d);
     }
 
     /* ---- the back room ---- */

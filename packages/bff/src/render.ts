@@ -421,6 +421,12 @@ export function renderRoom(v: RoomView): string {
             : `<span class="seal bad">!</span> this history could not be verified.`}
         </div>
       </div>
+      <div class="drawbox r d4" id="drawbox">
+        <div class="drawlbl">the room would like to draw you something</div>
+        <div class="drawart" id="drawart"><span class="drawing-wait">it is trying</span></div>
+        <div class="drawcap" id="drawcap"></div>
+      </div>
+
       <div class="endbar r d5">
         <button class="bigbtn" id="again"><span>Again</span></button>
         ${v.shareToken ? `<a class="bigbtn" href="/a/${esc(v.shareToken)}" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center"><span>Keep this</span></a>` : ''}
@@ -500,6 +506,34 @@ if (btn) {
     if (ap) ap.textContent = 'Thank you for not pressing it.';
   });
 }
+
+// the room draws. this takes seconds and that is the point — you watch it
+// struggle. the page never waits on it; the attempt arrives when it arrives.
+const dbox = document.getElementById('drawart');
+if (dbox) (async () => {
+  try {
+    const d = await (await fetch('/bff/drawing')).json();
+    dbox.innerHTML = '';
+    if (d.blank || !d.lines || !d.lines.length) {
+      dbox.textContent = '';
+    } else {
+      d.lines.forEach((l, i) => {
+        const el = document.createElement('div');
+        el.className = 'ln'; el.style.animationDelay = (0.12 * i) + 's';
+        el.textContent = l;
+        dbox.appendChild(el);
+      });
+    }
+    const cap = document.getElementById('drawcap');
+    if (cap) cap.textContent = d.caption || '';
+    const lbl = document.querySelector('.drawlbl');
+    if (lbl && d.subject) lbl.textContent = 'it was asked to draw ' + d.subject;
+  } catch {
+    dbox.textContent = '';
+    const cap = document.getElementById('drawcap');
+    if (cap) cap.textContent = 'It stopped part way through.';
+  }
+})();
 
 // again -> a genuinely different branch, chained to this one
 const again = document.getElementById('again');
