@@ -2,9 +2,11 @@
   "name": "shockme",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.0.0",
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
-    "dev": "node --experimental-strip-types packages/server/src/index.ts",
-    "test": "node --experimental-strip-types packages/engine/test/live.test.ts"
+    "dev": "node --experimental-strip-types packages/bff/src/index.ts",
+    "test:world": "node --experimental-strip-types packages/engine/test/t1.ts",
+    "test:live": "node --experimental-strip-types packages/engine/test/live.test.ts"
   }
 }
