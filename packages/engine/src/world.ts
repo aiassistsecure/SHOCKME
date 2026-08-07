@@ -93,7 +93,7 @@ export function inhabitantsAt(tick: number): Inhabitant[] {
  *   - strange because of what it implies, not because of what it states
  *   - reads like half of a conversation you walked in on
  */
-const AMBIENT = [
+export const AMBIENT = [
   'did yours have the door on the left',
   'mine was blue. i think mine was blue.',
   'i got a different question than that',

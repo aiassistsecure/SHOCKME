@@ -103,18 +103,38 @@ is spooky because it read your browser is a different, worse product.
 
 Requires **Node 22+** and **Python 3.9+**.
 
+**Three terminals.**
+
 ```bash
-# 1. the engine
-pip install nedb-engine
-nedbd --dag --data ./data --port 7070
+pip install nedb-engine     # once
 
-# 2. the site
-node --experimental-strip-types packages/bff/src/index.ts
-#    -> http://127.0.0.1:3400
-
-# 3. (optional) prove determinism + divergence in the terminal
-node --experimental-strip-types packages/engine/test/t1.ts
+./run/nedbd.sh              # terminal 1 — REQUIRED. the engine.
+./run/imagine.sh            # terminal 2 — the voice. ~532MB on first run.
+./run/bff.sh                # terminal 3 — REQUIRED. the site.
 ```
+
+Then open **http://127.0.0.1:3400**
+
+### The one flag
+
+`SHOCKME_IMAGINE` — **default ON**.
+
+| | |
+|---|---|
+| `SHOCKME_IMAGINE=1` (default) | ambient chat written live by the local `imagine` model |
+| `SHOCKME_IMAGINE=0` | ambient chat from the 20-line curated corpus |
+
+If the flag is on and nothing is listening on `:8081`, SHOCKME **does not
+die and does not pretend**: it prints a loud yellow banner, falls back to the
+corpus, and reports `"voice":"unreachable"` on `/health`. You are never left
+guessing which mode you are in — check the banner, or:
+
+```bash
+curl -s localhost:3400/health     # {"voice":"on"|"off-by-flag"|"unreachable"}
+```
+
+So: **nedbd is required, imagine is not.** The room works without it; it just
+repeats itself sooner.
 
 No `npm install`. There are no dependencies — the BFF is `node:http` and
 `node:crypto`, and the page is server-rendered HTML. Cold start is

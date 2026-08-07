@@ -136,6 +136,52 @@ h1 em{font-style:italic;color:var(--acid)}
 .counter{color:var(--dim);font-size:.85rem;margin-top:1.1rem;font-variant-numeric:tabular-nums}
 .counter b{color:var(--ink)}
 
+/* ---- the artifact: the thing people screenshot ---- */
+.artifact{
+  border:1px solid var(--line);background:linear-gradient(160deg,#111113,#0b0b0c);
+  padding:clamp(2rem,5vw,3.6rem);margin-bottom:2.4rem;position:relative;overflow:hidden;
+  max-width:640px
+}
+.artifact::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--acid),transparent);
+  transform:scaleX(0);transform-origin:center;
+  animation:seal 1.6s cubic-bezier(.16,1,.3,1) .3s forwards
+}
+@keyframes seal{to{transform:scaleX(1)}}
+.artifact-mark{
+  font-family:var(--serif);font-size:2.6rem;line-height:1;color:var(--acid);
+  margin-bottom:1.4rem;letter-spacing:.06em
+}
+.artifact-title{
+  font-family:var(--serif);font-weight:400;font-size:clamp(1.5rem,3.4vw,2.2rem);
+  line-height:1.15;margin-bottom:1.8rem;letter-spacing:-.01em
+}
+.artifact-lines{list-style:none;display:flex;flex-direction:column;gap:.75rem;margin-bottom:2rem}
+.artifact-lines li{
+  font-size:.98rem;color:#c9c7c1;padding-left:1.3rem;position:relative;
+  opacity:0;transform:translateX(-6px);
+  animation:slidein .7s cubic-bezier(.16,1,.3,1) forwards
+}
+@keyframes slidein{to{opacity:1;transform:none}}
+.artifact-lines li::before{content:"";position:absolute;left:0;top:.68em;width:7px;height:1px;background:var(--acid);opacity:.65}
+.artifact-closing{
+  font-family:var(--serif);font-style:italic;font-size:1.22rem;color:var(--ink);
+  padding-top:1.6rem;border-top:1px solid var(--line)
+}
+.artifact-seal{
+  margin-top:1.6rem;font-size:.76rem;color:var(--dim);letter-spacing:.04em;
+  display:flex;align-items:center;gap:.55rem
+}
+.seal{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:17px;height:17px;border-radius:50%;font-size:10px;flex-shrink:0
+}
+.seal.ok{background:rgba(200,255,47,.14);color:var(--acid);border:1px solid rgba(200,255,47,.4)}
+.seal.bad{background:rgba(255,90,60,.14);color:#ff5a3c;border:1px solid rgba(255,90,60,.4)}
+.endbar{display:flex;align-items:center;gap:1.4rem;flex-wrap:wrap}
+.endnote{color:var(--dim);font-size:.85rem;font-style:italic;font-family:var(--serif)}
+
 /* ---- the chat rail ---- */
 .rail{
   position:fixed;right:0;top:0;bottom:0;width:min(300px,26vw);
@@ -175,6 +221,14 @@ export interface RoomView {
   lines: ObservedLine[];
   visitCount: number;
   noticeText?: string;
+  artifact?: {
+    mark: string;
+    title: string;
+    lines: string[];
+    closing: string;
+    historyIntact: boolean;
+    chainLength: number;
+  };
 }
 
 function chatRail(lines: ObservedLine[]): string {
@@ -212,6 +266,26 @@ export function renderRoom(v: RoomView): string {
         <button class="bigbtn" id="thebutton"><span>Do not press this</span></button>
         <div class="counter"><b id="npc">${v.resolved.notPressedCount.toLocaleString()}</b>
           people have not pressed it.</div>
+      </div>`;
+  } else if (v.renderer === 'artifact' && v.artifact) {
+    const a = v.artifact;
+    main = `
+      <div class="artifact r d3">
+        <div class="artifact-mark">${esc(a.mark)}</div>
+        <h2 class="artifact-title">${esc(a.title)}</h2>
+        <ul class="artifact-lines">
+          ${a.lines.map((l, i) => `<li style="animation-delay:${0.7 + i * 0.13}s">${esc(l)}</li>`).join('')}
+        </ul>
+        <p class="artifact-closing">${esc(a.closing)}</p>
+        <div class="artifact-seal">
+          ${a.historyIntact
+            ? `<span class="seal ok">&#10003;</span> your history is intact. ${a.chainLength} moments, hash-linked, unaltered.`
+            : `<span class="seal bad">!</span> this history could not be verified.`}
+        </div>
+      </div>
+      <div class="endbar r d5">
+        <button class="bigbtn" id="again"><span>Again</span></button>
+        <span class="endnote">it will not be the same room.</span>
       </div>`;
   } else {
     main = `<div class="objects r d3">${chairs}</div>`;
@@ -272,6 +346,14 @@ if (btn) {
     if (ap) ap.textContent = 'Thank you for not pressing it.';
   });
 }
+
+// again -> a genuinely different branch, chained to this one
+const again = document.getElementById('again');
+if (again) again.addEventListener('click', async () => {
+  document.body.style.transition='opacity .4s'; document.body.style.opacity='0';
+  await post('/bff/replay', {});
+  location.href = '/room';
+});
 
 // dwell — the notice rewards attention
 let dwell = 0;
