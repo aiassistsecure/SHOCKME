@@ -271,6 +271,7 @@ export interface RoomView {
   resolved: Resolved;
   lines: ObservedLine[];
   visitCount: number;
+  origin: string;
   noticeText?: string;
   artifact?: {
     mark: string;
@@ -359,6 +360,21 @@ export function renderRoom(v: RoomView): string {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
 <title>SHOCKME</title>
+<!--
+  The room is noindex — it is per-visitor and there is nothing stable to
+  index. But the URL still gets FORWARDED, so it must unfurl. og:url and
+  og:image are absolute from SHOCKME_ORIGIN: a relative og:image unfurls
+  nowhere, and behind Cloudflare the request host is not trustworthy.
+-->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="SHOCKME">
+<meta property="og:url" content="${esc(v.origin)}/">
+<meta property="og:title" content="You didn't find the same website they did.">
+<meta property="og:description" content="Somebody else is in this room right now. They are not being told what you are being told.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="You didn't find the same website they did.">
+<meta name="twitter:description" content="Somebody else is in this room right now. They are not being told what you are being told.">
+<meta name="theme-color" content="#0a0806">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">

@@ -202,6 +202,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     resolved,
     lines,
     visitCount: v?.visitCount ?? 0,
+    origin: CONFIG.origin,
     noticeText: noticeFor(dwellMs),
     artifact,
   });

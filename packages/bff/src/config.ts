@@ -32,6 +32,13 @@ export const CONFIG = {
   imagineUrl: process.env.IMAGINE_URL ?? 'http://127.0.0.1:8081',
 
   worldSeed: process.env.SHOCKME_WORLD_SEED ?? 'the-room-remembers',
+
+  /**
+   * Public origin. OG tags and share links MUST be absolute — a relative
+   * og:image does not unfurl on any platform, so this cannot be inferred
+   * from the request host without breaking behind Cloudflare.
+   */
+  origin: (process.env.SHOCKME_ORIGIN ?? 'http://127.0.0.1:3400').replace(/\/+$/, ''),
 } as const;
 
 export type ImagineStatus = 'on' | 'off-by-flag' | 'unreachable';
@@ -42,6 +49,7 @@ export function banner(imagine: ImagineStatus, extra: string[] = []): void {
   const rows: [string, string][] = [
     ['site', `${C}http://127.0.0.1:${CONFIG.port}${X}`],
     ['engine', `${CONFIG.nedbUrl}  ${D}db=${CONFIG.nedbDb}${X}`],
+    ['origin', `${D}${CONFIG.origin}${X}`],
   ];
 
   if (imagine === 'on') {

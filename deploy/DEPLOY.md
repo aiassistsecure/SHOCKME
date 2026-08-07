@@ -43,6 +43,7 @@ Then edit `.env` and uncomment the production block:
 PORT=3410
 NEDB_URL=http://127.0.0.1:7075
 IMAGINE_URL=http://127.0.0.1:8085
+SHOCKME_ORIGIN=https://thrilling.world
 ```
 
 ## 4 · start the three
@@ -68,14 +69,16 @@ Mail-in-a-Box owns nginx here. **Do not use sites-enabled** — MiaB
 regenerates it and your file vanishes on the next update.
 
 ```bash
-sed -i 's/__DOMAIN__/yourdomain.com/g' deploy/nginx-shockme.conf
 cp deploy/nginx-shockme.conf /etc/nginx/conf.d/local/shockme.conf
 nginx -t && systemctl reload nginx
 ```
 
+The conf already has `thrilling.world` baked in, plus a `www` -> apex 301.
+
 ## 7 · Cloudflare
 
-- **A record** → box IP, proxy **ON** (orange cloud)
+- **A record** `thrilling.world` → box IP, proxy **ON** (orange cloud)
+- **A record** `www` → box IP, proxy **ON**
 - **SSL/TLS mode → Flexible**
 
 Flexible terminates TLS at Cloudflare and speaks plain HTTP to the box. The
@@ -85,10 +88,10 @@ under Flexible causes an infinite redirect loop.
 ## Verify live
 
 ```bash
-curl -sI https://yourdomain.com | head -3
-curl -s https://yourdomain.com/health
+curl -sI https://thrilling.world | head -3
+curl -s https://thrilling.world/health
 # SSE must stream, not buffer — this should dribble out, not arrive at once:
-curl -N -s https://yourdomain.com/bff/stream | head -5
+curl -N -s https://thrilling.world/bff/stream | head -5
 ```
 
 If that last one hangs and then dumps everything at once, `proxy_buffering`
