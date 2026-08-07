@@ -1,0 +1,10 @@
+{
+  "name": "shockme",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev": "node --experimental-strip-types packages/server/src/index.ts",
+    "test": "node --experimental-strip-types packages/engine/test/live.test.ts"
+  }
+}
