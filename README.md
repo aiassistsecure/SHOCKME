@@ -7,8 +7,8 @@ different version of the same place. Not horror. Not gore. The shock is
 strangeness, surprise, absurdity, and the slow realisation that the person
 next to you is being told something else.
 
-**Status: early. The engine core runs; the web app does not exist yet.**
-See [Roadmap](#roadmap) for what is real today.
+**Status: playable vertical slice.** The Waiting Room runs end to end against
+a real `nedbd`. See [Roadmap](#roadmap) for what is and is not built.
 
 ---
 
@@ -108,20 +108,21 @@ Requires **Node 22+** and **Python 3.9+**.
 pip install nedb-engine
 nedbd --dag --data ./data --port 7070
 
-# 2. prove the world is deterministic and observers diverge
+# 2. the site
+node --experimental-strip-types packages/bff/src/index.ts
+#    -> http://127.0.0.1:3400
+
+# 3. (optional) prove determinism + divergence in the terminal
 node --experimental-strip-types packages/engine/test/t1.ts
 ```
 
-Expected:
+No `npm install`. There are no dependencies — the BFF is `node:http` and
+`node:crypto`, and the page is server-rendered HTML. Cold start is
+milliseconds and first paint is ~12KB.
 
-```
-1. same tick reproducible : PASS
-2. same observer stable   : PASS
-3. observers diverge      : 2/15 lines differ -> PASS
-```
-
-If `3.` reports `0/15`, divergence is broken — that is the one number that
-matters most in this repo.
+**Open it in two different browsers** (or one normal + one private window).
+That is the whole point: you are two different visitors, and you will not be
+shown the same room.
 
 ---
 
@@ -132,20 +133,36 @@ Honest status. Nothing below is marked done unless it runs.
 - [x] Deterministic RNG with namespaced streams and replay-seed derivation
 - [x] World clock, seeded bot population, per-observer divergence
 - [x] NEDB transport layer
-- [ ] Repository layer — the thirteen domain abstractions
-- [ ] BFF intent routes + anonymous sessions
-- [ ] WebSocket live stream
-- [ ] The first experience: **THE WAITING ROOM**
+- [x] Repository layer — the thirteen domain abstractions
+- [x] BFF intent routes + anonymous sessions
+- [x] Live stream of the room (SSE — see deltas note in `docs/SPEC.md`)
+- [x] **THE WAITING ROOM** — arrival, dwell, branching, the impossible button
+- [x] Content-addressed idempotent experience registry
 - [ ] Personalised artifact + comparison tokens
 - [ ] Public plane: invitation, artifact permalinks, compare page
-- [ ] Replay as a provable branch
-- [ ] Experience registry for experiences two and beyond
+- [ ] Replay wired to the UI (engine support exists, no button yet)
+- [ ] Second experience, proving the registry earns its keep
+
+### Verified on a live daemon
+
+| Acceptance criterion (SPEC §11) | Status |
+| --- | --- |
+| 1 · two visitors get different resolved scenes | pass — 3 chairs vs 4, different greetings |
+| 2 · seed never in browser-visible payload | pass — seed, `_hash`, `_seq`, `caused_by` all absent |
+| 7 · content-addressed seed run is idempotent | pass — second boot reports "already current" |
+| 9 · history verification passes | pass — 23 objects, `tampered: []` |
+| 3 · reload reproduces session state | partial — survives restart; needs a formal test |
+| 4, 5, 6, 10, 11, 12 | not yet built |
 
 ### Known rough edges
 
 - Divergence rate is lower than intended (~13% observed vs ~34% targeted).
   The substitution table needs more coverage.
-- The ambient corpus is small; repetition will show within a few minutes.
+- The ambient corpus is 20 lines; repetition shows within a few minutes.
+- The artifact, compare page, and replay button do not exist yet, so the loop
+  currently ends at the button rather than closing.
+- SSE is used instead of WebSocket (zero-dependency, one-way is sufficient).
+  Flagged as a deviation in `docs/SPEC.md`.
 
 ---
 

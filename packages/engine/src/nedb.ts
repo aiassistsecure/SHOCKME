@@ -96,12 +96,30 @@ export class Nedb {
     return (text ? JSON.parse(text) : {}) as T;
   }
 
-  /** Idempotent: creating an existing database is not an error we care about. */
+  /**
+   * Idempotent database creation.
+   *
+   * MUST list-then-create, not create-and-catch. Observed on nedbd 2.8.2:
+   * POST /v1/databases for a database the daemon already holds open returns
+   * **500 "locked by another process (pid N)"** — where pid N is the daemon
+   * itself — not a 409. Catching only 409 makes every restart after the
+   * first one fail to boot, and the error message sends you hunting for a
+   * phantom second process.
+   */
   async ensureDatabase(): Promise<void> {
+    try {
+      const list = await this.call<{ databases?: unknown[] }>('GET', '');
+      const names = (list.databases ?? []).map((d) =>
+        typeof d === 'string' ? d : String((d as { name?: string }).name ?? ''),
+      );
+      if (names.includes(this.db)) return;
+    } catch {
+      /* fall through and attempt creation */
+    }
     try {
       await this.call('POST', '', { name: this.db });
     } catch (e) {
-      if (e instanceof NedbError && (e.status === 409 || /exist/i.test(e.message))) return;
+      if (e instanceof NedbError && (e.status === 409 || /exist|locked/i.test(e.message))) return;
       throw e;
     }
   }
