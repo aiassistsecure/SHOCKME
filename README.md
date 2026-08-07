@@ -141,6 +141,28 @@ never has."* — never as a validation error.
 node --experimental-strip-types packages/engine/test/chat.test.ts   # 18 assertions
 ```
 
+### The back room
+
+`/admin?k=<token>` — funnel, branch splits, dwell quantiles, press-vs-refuse,
+chair distribution, every line ever spoken, engine integrity, live env.
+
+```bash
+openssl rand -hex 24          # put it in .env as SHOCKME_ADMIN_TOKEN
+```
+
+**With no token set, `/admin` returns a plain 404** — not 401, not "disabled" —
+so a scanner cannot learn the panel exists. A wrong token of the *same length*
+also 404s, and the compare is `timingSafeEqual`. The token is swapped for a
+`SameSite=Strict` cookie on first visit so it stops living in browser history,
+and the page is `no-store` + `no-referrer`.
+
+**No identity is collected.** No IP, user agent, referrer, device, location or
+fingerprint — not stored, not displayed. The site tells visitors publicly that
+its strangeness comes from its own world model rather than from watching them,
+and a back room hoarding what the front page denies would make that a lie.
+Every number is derived from the append-only event log, so the analytics
+cannot drift from what actually happened.
+
 ### The flags
 
 `SHOCKME_IMAGINE` — **default ON**.

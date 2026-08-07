@@ -28,6 +28,7 @@ import { AMBIENT } from '../../engine/src/world.ts';
 import { Imagine } from '../../engine/src/imagine.ts';
 import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, type ObservedLine } from '../../engine/src/world.ts';
 import { screen, decline, rateCheck, noteSpoke, handleFor, MAX_LEN, type Utterance } from '../../engine/src/chat.ts';
+import { adminEnabled, tokenOk, gather, renderAdmin, ADMIN_TOKEN } from './admin.ts';
 
 const PORT = CONFIG.port;
 const repo = new Repo(new Nedb({ url: CONFIG.nedbUrl, db: CONFIG.nedbDb }));
@@ -121,6 +122,9 @@ const LIVE_KEEP = 120;
  * clock, because the room has a rhythm; people interrupt it.
  */
 let voiceSeq = 0;
+
+/** Open event streams == people with the room actually on screen. */
+let openStreams = 0;
 
 function voicesInWindow(fromTick: number, toTick: number): Utterance[] {
   return liveVoices.filter((u) => u.tick >= fromTick && u.tick <= toTick);
@@ -307,6 +311,7 @@ const server = createServer(async (req, res) => {
         'cache-control': 'no-cache',
         connection: 'keep-alive',
       });
+      openStreams++;
       let last = currentTick();
       // Everything spoken before this connection opened is already on the
       // page from the server render; only send what happens from here.
@@ -340,7 +345,7 @@ const server = createServer(async (req, res) => {
         } catch { /* a dropped tick is never fatal */ }
         finally { busy = false; }
       }, 900);
-      req.on('close', () => clearInterval(timer));
+      req.on('close', () => { clearInterval(timer); openStreams = Math.max(0, openStreams - 1); });
       return;
     }
 
@@ -396,6 +401,49 @@ const server = createServer(async (req, res) => {
       const s = await repo.replaySession(ctx.sessionId, INITIAL_SCENE);
       res.setHeader('set-cookie', [...ctx.setCookies, cookie('sm_s', s.sessionId)]);
       return json(res, { ok: true, replayIndex: s.replayIndex });
+    }
+
+    /* ---- the back room ---- */
+    if (path === '/admin') {
+      // With no token configured this path does not exist. Not 401, not
+      // "disabled" — a scanner must not be able to learn the panel is here.
+      if (!adminEnabled()) {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        return res.end('not here. or not yet.');
+      }
+      const given = url.searchParams.get('k')
+        ?? readCookies(req).sm_admin
+        ?? (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+
+      if (!tokenOk(given)) {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        return res.end('not here. or not yet.');
+      }
+
+      const stats = await gather(repo, openStreams);
+      const html = renderAdmin(stats, {
+        SHOCKME_IMAGINE: String(CONFIG.imagine),
+        SHOCKME_CHAT: String(CONFIG.chat),
+        IMAGINE_URL: CONFIG.imagineUrl,
+        NEDB_URL: CONFIG.nedbUrl,
+        NEDB_DB: CONFIG.nedbDb,
+        SHOCKME_ORIGIN: CONFIG.origin,
+        SHOCKME_WORLD_SEED: CONFIG.worldSeed,
+        SHOCKME_BLOCKLIST: process.env.SHOCKME_BLOCKLIST ? 'set' : '(built-in only)',
+        voice: imagineStatus,
+        node: process.version,
+        uptime: `${Math.round(process.uptime() / 60)}m`,
+        rss: `${Math.round(process.memoryUsage().rss / 1e6)}MB`,
+      });
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        // Session cookie so ?k= is only needed once and stops living in
+        // browser history and the referrer of every subsequent request.
+        'set-cookie': `sm_admin=${encodeURIComponent(given)}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=43200`,
+        'cache-control': 'no-store',
+        'referrer-policy': 'no-referrer',
+      });
+      return res.end(html);
     }
 
     /* ---- speaking into the room ---- */
