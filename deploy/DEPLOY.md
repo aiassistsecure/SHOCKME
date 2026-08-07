@@ -1,25 +1,15 @@
 # SHOCKME · deploy
 
-Cloudflare Flexible → nginx :80 → BFF :3410 → nedbd :7075 (+ imagine :8085).
+**Live at https://thrilling.world**
 
-No systemd. Run the three processes however you like — `screen`, `tmux`, or
-by hand. Only nginx is installed system-wide.
+Cloudflare (Flexible) → nginx :80 → BFF :3410 → nedbd :7070 (+ imagine :8081)
 
-## Ports differ from local, on purpose
-
-| | local | VPS |
-|---|---|---|
-| BFF | 3400 | **3410** |
-| nedbd | 7070 | **7075** |
-| imagine | 8081 | **8085** |
-
-Vision and NEDB Studio already hold **7070** on this box. Two nedbd instances
-on one port is a silent, confusing failure — separate ports, always.
+Everything below is what was ACTUALLY done on the box, not what I first
+guessed. The four things that cost us time are marked ⚠️.
 
 ## 1 · code
 
 ```bash
-ssh root@box
 git clone https://github.com/aiassistsecure/SHOCKME.git /opt/shockme
 cd /opt/shockme
 ```
@@ -28,7 +18,7 @@ cd /opt/shockme
 
 ```bash
 pip install nedb-engine
-node -v            # must be 22.6+; run/_node.sh will refuse below that
+node -v          # 22.6+ required. run/_node.sh refuses below that.
 ```
 
 ## 3 · env
@@ -37,70 +27,96 @@ node -v            # must be 22.6+; run/_node.sh will refuse below that
 cp .env.example .env
 ```
 
-Then edit `.env` and uncomment the production block:
+Edit it to match what you'll actually run:
 
 ```
 PORT=3410
-NEDB_URL=http://127.0.0.1:7075
-IMAGINE_URL=http://127.0.0.1:8085
+NEDB_URL=http://127.0.0.1:7070
+NEDB_DB=shockme
+SHOCKME_IMAGINE=1
+IMAGINE_URL=http://127.0.0.1:8081
 SHOCKME_ORIGIN=https://thrilling.world
 ```
 
-## 4 · start the three
+⚠️ **PORT must match the nginx `proxy_pass`.** The conf says 3410. If `.env`
+doesn't set PORT, the BFF defaults to 3400 and nginx 502s into the void.
+
+## 4 · run the three, in screen
+
+⚠️ **Use screen or tmux.** These are foreground processes. Close the SSH
+session without a multiplexer and the site dies with it.
 
 ```bash
-NEDB_PORT=7075   ./run/nedbd.sh      # screen -S sm-engine
-IMAGINE_PORT=8085 ./run/imagine.sh   # screen -S sm-voice   (532MB first run)
-./run/bff.sh                          # screen -S sm-site
+screen -S sm-engine   # ./run/nedbd.sh     -> :7070
+screen -S sm-voice    # ./run/imagine.sh   -> :8081  (532MB first run)
+screen -S sm-site     # ./run/bff.sh       -> :3410
+# ctrl-A then D to detach each
 ```
 
-## 5 · verify BEFORE touching nginx
+## 5 · verify the app BEFORE touching nginx
 
 ```bash
 curl -s localhost:3410/health
+# {"ok":true,...,"voice":"on"}
 ```
 
-Expect `{"ok":true,...,"voice":"on"}`. If `voice` is `unreachable`, imagine
-isn't up — the site still works, it just uses the corpus.
+⚠️ **Check the process, not just the port.** A port being occupied does not
+mean it is occupied by US — on this box something else was already sitting on
+3400, and `curl` returning nothing looked like our app being broken. To see
+who actually owns a port:
+
+```bash
+ss -ltnp | grep -E '3410|7070|8081'
+```
+
+Node shows as `node`. If you see `MainThread`, that's a Python process and
+it isn't ours.
 
 ## 6 · nginx
 
-Mail-in-a-Box owns nginx here. **Do not use sites-enabled** — MiaB
-regenerates it and your file vanishes on the next update.
+⚠️ **This box uses `sites-available` + `sites-enabled`**, despite running
+Mail-in-a-Box. `vibecode-101.com` and `vibecode-expo.com` already live there.
+Copying the file in is not enough — it must be SYMLINKED into sites-enabled
+or nginx never reads it and MiaB's catch-all answers instead.
 
 ```bash
-cp deploy/nginx-shockme.conf /etc/nginx/conf.d/local/shockme.conf
+cp deploy/nginx-shockme.conf /etc/nginx/sites-available/shockme.conf
+ln -s /etc/nginx/sites-available/shockme.conf /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
 ```
 
-The conf already has `thrilling.world` baked in, plus a `www` -> apex 301.
+Verify nginx routes the Host correctly, independent of DNS and Cloudflare:
+
+```bash
+curl -sI -H "Host: thrilling.world" localhost | head -3   # expect 200
+```
 
 ## 7 · Cloudflare
 
-- **A record** `thrilling.world` → box IP, proxy **ON** (orange cloud)
-- **A record** `www` → box IP, proxy **ON**
-- **SSL/TLS mode → Flexible**
+- **A record** `thrilling.world` → box IP, proxied (orange cloud)
+- **A record** `www` → box IP, proxied
+- **SSL/TLS mode → Flexible** ⚠️ **not optional**
 
-Flexible terminates TLS at Cloudflare and speaks plain HTTP to the box. The
-nginx conf has no 443 block and no https redirect on purpose — adding one
-under Flexible causes an infinite redirect loop.
-
-## Verify live
-
-```bash
-curl -sI https://thrilling.world | head -3
-curl -s https://thrilling.world/health
-# SSE must stream, not buffer — this should dribble out, not arrive at once:
-curl -N -s https://thrilling.world/bff/stream | head -5
-```
-
-If that last one hangs and then dumps everything at once, `proxy_buffering`
-is still on somewhere.
+⚠️ **The Flexible/Full trap.** This conf listens on **:80 only**. Under
+**Full** or **Full (Strict)**, Cloudflare connects on **:443** instead, where
+MiaB's catch-all is waiting — so you get the Mail-in-a-Box landing page even
+though `curl` on :80 returns a perfect 200. That exact split (curl works,
+browser shows MiaB) is the signature of the wrong SSL mode.
 
 ## Restart after a pull
 
 ```bash
 cd /opt/shockme && git pull
-# restart the bff screen; nedbd and imagine only need restarting if their
-# ports or the model changed.
+screen -r sm-site     # ctrl-C, ./run/bff.sh, ctrl-A D
 ```
+
+nedbd and imagine only need restarting if ports or the model changed.
+
+## Known operational debt
+
+- Nothing supervises the three processes. A crash or reboot means manual
+  restart. systemd units were written and dropped at M's request; revisit
+  when the site matters more than the iteration speed.
+- nedbd on **7070 is shared** with other projects on this box. `NEDB_DB=shockme`
+  keeps the data separate, but restarting that daemon for another project
+  takes SHOCKME down too. A dedicated instance on 7075 is the clean fix.
