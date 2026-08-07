@@ -246,11 +246,59 @@ h1{
 .jar a:hover{color:var(--phos-hot);border-color:var(--phos-hot)}
 .jar .amt{font-family:var(--crt);font-size:1.15rem;letter-spacing:.06em}
 
+/* ============================================================
+   MOBILE FIRST, PROPERLY.
+   The rail was a desktop sidebar bolted to a phone. On small
+   screens the room is the page and the room's voices sit UNDER
+   it as a strip you scroll to — present, not competing.
+   ============================================================ */
 @media(max-width:860px){
+  body{font-size:16px}                    /* never below 16 — iOS zooms on focus */
+  .wrap{padding:0 6vw;padding-left:max(6vw,env(safe-area-inset-left));
+        padding-right:max(6vw,env(safe-area-inset-right))}
+  .room{min-height:auto;padding:14vh 0 3rem;justify-content:flex-start}
+  h1{font-size:clamp(2.4rem,13vw,4rem);max-width:none;line-height:.92}
+  .lede{font-size:1rem;max-width:none;margin-bottom:2rem}
+  .eyebrow{font-size:10px;letter-spacing:.24em;margin-bottom:1.8rem;
+           flex-wrap:wrap;gap:10px}
+
+  /* thumbs, not cursors: 48px minimum target, generous separation */
+  .choice{padding:1.15rem .2rem;min-height:52px;font-size:1.02rem}
+  .choice .arrow{opacity:1}               /* no hover on touch — always show it */
+  .choice::after{display:none}            /* the blinking caret is a mouse joke */
+  .bigbtn{padding:1.25rem 2rem;width:100%;font-size:.78rem;letter-spacing:.2em}
+
+  .objects{gap:11px;margin-bottom:2rem}
+  .chair{width:28px;height:36px}
+  .notice{padding:1.4rem 1.2rem;font-size:1.15rem;line-height:1.6}
+
+  .artifact{padding:1.6rem 1.3rem}
+  .artifact-title{font-size:1.75rem}
+  .artifact-lines li{font-size:.92rem}
+  .artifact-closing{font-size:1.3rem}
+  .endbar{flex-direction:column;align-items:stretch;gap:.9rem}
+  .endnote{text-align:center}
+
+  /* the rail becomes a room-tone strip below the content */
   .rail{position:static;width:auto;border-left:0;border-top:1px solid var(--line);
-    background:transparent;backdrop-filter:none}
-  .wrap{padding:0 6vw}
+        background:transparent;backdrop-filter:none;
+        padding:1.6rem max(6vw,env(safe-area-inset-left)) 2.5rem;gap:.9rem}
+  .lines{max-height:none}
+  .line .txt{font-size:.88rem}
+  .jar{margin-top:1.6rem}
 }
+
+/* very small phones */
+@media(max-width:380px){
+  h1{font-size:2.1rem}
+  .notice{font-size:1.02rem;letter-spacing:.06em}
+}
+
+/* short landscape phones — do not force a full viewport of empty room */
+@media(max-height:520px) and (orientation:landscape){
+  .room{min-height:auto;padding:3rem 0}
+}
+
 @media(min-width:861px){.wrap{padding-right:calc(7vw + min(300px,26vw))}}
 
 @media(prefers-reduced-motion:reduce){
@@ -272,6 +320,7 @@ export interface RoomView {
   lines: ObservedLine[];
   visitCount: number;
   origin: string;
+  shareToken?: string;
   noticeText?: string;
   artifact?: {
     mark: string;
@@ -342,6 +391,7 @@ export function renderRoom(v: RoomView): string {
       </div>
       <div class="endbar r d5">
         <button class="bigbtn" id="again"><span>Again</span></button>
+        ${v.shareToken ? `<a class="bigbtn" href="/a/${esc(v.shareToken)}" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center"><span>Keep this</span></a>` : ''}
         <span class="endnote">it will not be the same room.</span>
       </div>`;
   } else {
@@ -357,7 +407,7 @@ export function renderRoom(v: RoomView): string {
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>SHOCKME</title>
 <!--
@@ -451,6 +501,130 @@ if (lines) new EventSource('/bff/stream').onmessage = (e) => {
   lines.appendChild(el);
   while (lines.children.length > 9) lines.removeChild(lines.firstChild);
 };
+</script>
+</body></html>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* The artifact permalink — the public plane                           */
+/* ------------------------------------------------------------------ */
+
+export interface ArtifactView {
+  token: string;
+  title: string;
+  lines: string[];
+  closing: string;
+  historyIntact: boolean;
+  chainLength: number;
+  origin: string;
+  /** True when the viewer is the person it happened to. */
+  isOwner: boolean;
+}
+
+/**
+ * A stranger with no cookie must be able to read this and want one.
+ *
+ * Unlike the room, this page IS indexable and IS cacheable — it is the same
+ * for everyone who opens it, because it describes something that already
+ * happened. That is exactly why it can carry OG tags and be forwarded, and
+ * why the room itself cannot.
+ */
+export function renderArtifact(v: ArtifactView): string {
+  const url = `${v.origin}/a/${v.token}`;
+  const tweet = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+    `"${v.title}"\n\nit gave me a different room than it gave you. mine had ${'${'}v.chairHint}.`,
+  )}&url=${encodeURIComponent(url)}`;
+
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${esc(v.title)} — SHOCKME</title>
+<meta name="description" content="${esc(v.lines[0] ?? '')} A record of one visit to a room that gives everyone a different version.">
+<link rel="canonical" href="${esc(url)}">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="SHOCKME">
+<meta property="og:url" content="${esc(url)}">
+<meta property="og:title" content="${esc(v.title)}">
+<meta property="og:description" content="${esc(v.lines[1] ?? v.lines[0] ?? '')} — one visit, kept. Yours will not say this.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(v.title)}">
+<meta name="twitter:description" content="${esc(v.lines[1] ?? v.lines[0] ?? '')} — yours will not say this.">
+<meta name="theme-color" content="#0a0806">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>${CSS}
+.paper{max-width:660px;margin:0 auto;padding:9vh 0 5rem}
+.filed{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--phos-dim);
+  margin-bottom:1.6rem;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.actions{display:flex;gap:.8rem;flex-wrap:wrap;margin-top:2.2rem}
+.act{appearance:none;display:inline-flex;align-items:center;justify-content:center;
+  gap:.5rem;background:transparent;border:1px solid var(--line);color:var(--phos);
+  font-family:var(--mono);font-size:.74rem;letter-spacing:.2em;text-transform:uppercase;
+  padding:1.05rem 1.6rem;cursor:pointer;text-decoration:none;min-height:50px;
+  transition:border-color .3s,color .3s,background .3s}
+.act:hover{border-color:var(--phos);color:var(--phos-hot);background:rgba(255,179,71,.05)}
+.act.primary{border-color:var(--phos);color:var(--phos-hot)}
+.act.primary:hover{background:var(--phos);color:var(--void)}
+.enter{margin-top:3.5rem;padding-top:2rem;border-top:1px solid var(--line)}
+.enter p{color:#c9a978;font-size:1rem;margin-bottom:1.4rem;line-height:1.6}
+.enter em{font-family:var(--crt);font-size:1.3rem;font-style:normal;color:var(--phos-hot)}
+@media(max-width:860px){
+  .paper{padding:6vh 0 3rem}
+  .actions{flex-direction:column}
+  .act{width:100%}
+}
+</style>
+</head><body>
+<div class="wrap"><main class="paper">
+  <div class="filed r d1">
+    <span class="dot"></span>
+    <span>Record ${esc(v.token)}</span>
+    <span>·</span>
+    <span>${v.isOwner ? 'this happened to you' : 'this happened to someone else'}</span>
+  </div>
+
+  <div class="artifact r d2">
+    <div class="artifact-mark">&#9672;</div>
+    <h2 class="artifact-title">${esc(v.title)}</h2>
+    <ul class="artifact-lines">
+      ${v.lines.map((l, i) => `<li style="animation-delay:${0.5 + i * 0.12}s">${esc(l)}</li>`).join('')}
+    </ul>
+    <p class="artifact-closing">${esc(v.closing)}</p>
+    <div class="artifact-seal">
+      ${v.historyIntact
+        ? `<span class="seal ok">&#10003;</span> ${v.chainLength} moments, hash-linked, unaltered since.`
+        : `<span class="seal bad">!</span> this record could not be verified.`}
+    </div>
+  </div>
+
+  <div class="actions r d4">
+    <a class="act" href="${esc(tweet)}" target="_blank" rel="noopener noreferrer">Show someone</a>
+    <button class="act" id="copy">Copy the link</button>
+  </div>
+
+  <div class="enter r d5">
+    <p><em>This is not a preview.</em> It already happened to somebody, once, and
+       the room has no way to run it again. Yours will be a different room with
+       a different number of chairs, and it will end with a different sentence.</p>
+    <a class="act primary" href="/">Go in</a>
+  </div>
+
+  <div class="jar r d6" style="margin-top:3rem;border-top:1px solid var(--line);padding-top:1.2rem">
+    this runs on a machine somebody pays for.<br>
+    <a href="https://cash.app/$interchained" target="_blank" rel="noopener noreferrer">
+      <span class="amt">$interchained</span></a>
+  </div>
+</main></div>
+<script type="module">
+const c = document.getElementById('copy');
+c?.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(${JSON.stringify(url)});
+        c.textContent = 'The link has been copied. It was already copied.';
+        setTimeout(() => { c.textContent = 'Copy the link'; }, 3200);
+  } catch { c.textContent = 'It would not let me.'; }
+});
 </script>
 </body></html>`;
 }

@@ -29,23 +29,33 @@ export const EXPERIENCE_VERSION = '0.1.0';
 /** The sentence the visitor did not type. */
 export const GREETINGS = [
   'You are early.',
-  'You are late, but only slightly.',
+  'You are early. Everyone is early. That is the problem.',
+  'You are late, but only slightly, and not in a way that matters to us.',
   'You came back.',
-  'We kept it open.',
+  'We kept it open. Not for you specifically.',
   'You are the fourth person to arrive first.',
-  'We were told to expect someone taller.',
+  'We were told to expect someone taller. We will proceed anyway.',
   'You may sit anywhere except the one you were going to choose.',
   'Nothing has started yet. Nothing is going to start.',
   'Thank you for waiting. You have not waited yet.',
+  'You have been assigned the good chair. It is the same chair.',
+  'Please accept our apology for the thing that has not happened.',
+  'Your appointment was moved. It was moved to now.',
+  'We are so glad it is you. We were glad before we checked.',
+  'Someone described you accurately and we would rather not say who.',
+  'Welcome back. This is your first visit.',
 ] as const;
 
 /** What is wrong with the room. One per session, quietly consistent. */
 export const ANOMALIES = [
-  { key: 'chairs', object: 'a chair', line: 'There are four chairs in this room.' },
-  { key: 'clock', object: 'the clock', line: 'The clock is correct.' },
-  { key: 'plant', object: 'the plant', line: 'The plant was watered this morning.' },
-  { key: 'window', object: 'the window', line: 'The window looks out onto the corridor.' },
-  { key: 'door', object: 'the second door', line: 'There is one door.' },
+  { key: 'chairs', object: 'a chair',        line: 'There are four chairs in this room.' },
+  { key: 'clock',  object: 'the clock',      line: 'The clock is correct.' },
+  { key: 'plant',  object: 'the plant',      line: 'The plant was watered this morning, by someone.' },
+  { key: 'window', object: 'the window',     line: 'The window looks out onto the corridor.' },
+  { key: 'door',   object: 'the second door', line: 'There is one door.' },
+  { key: 'lamp',   object: 'the lamp',       line: 'The lamp has been on since before the room.' },
+  { key: 'carpet', object: 'the carpet',     line: 'The carpet is the original carpet. It is new.' },
+  { key: 'ceiling',object: 'the ceiling',    line: 'The ceiling is at the usual height for this room.' },
 ] as const;
 
 /** Dwell-reactive notice text. The longer you read it, the more it says. */
@@ -55,6 +65,9 @@ export const NOTICE_STAGES = [
   'PLEASE WAIT. YOU ARE DOING IT CORRECTLY. BETTER THAN THE LAST ONE.',
   'PLEASE WAIT. WE HAVE STOPPED COUNTING YOUR WAITING. IT WAS MAKING YOU NERVOUS.',
   'YOU ARE STILL READING THIS. THAT HAS BEEN NOTED, KINDLY.',
+  'THIS NOTICE WAS WRITTEN FOR SOMEONE ELSE. IT HAS BEEN WORKING OUT.',
+  'WE HAVE RUN OUT OF NOTICE. PLEASE CONTINUE AS IF THERE WERE MORE.',
+  'THE NOTICE IS NOW READING YOU. THIS IS WITHIN NORMAL PARAMETERS.',
 ] as const;
 
 /** The apology, shown BEFORE the button is pressed. */
@@ -64,6 +77,10 @@ export const APOLOGIES = [
   'This was not my idea.',
   'Sorry. Genuinely.',
   'I would rather you did not, but I understand.',
+  'No hard feelings, whatever happens.',
+  'I want to say now that I tried.',
+  'Please know that I liked you.',
+  'This is going to be fine and I am sorry.',
 ] as const;
 
 /** What the room says after you press the button you did not press. */
@@ -72,15 +89,23 @@ export const NON_PRESSES = [
   'Nothing was pressed. Thank you.',
   'The button remains unpressed. Your restraint is appreciated.',
   'No one has pressed it. Least of all you.',
+  'The button has no record of you. The button is very tired.',
+  'That did not happen, and we are both better for it.',
+  'Unpressed. Beautifully unpressed.',
+  'We have added you to the list of people who did not.',
 ] as const;
 
 /** Closing lines for the artifact. */
 export const CLOSINGS = [
   'You were not supposed to see this version.',
   'This version has been retired. You may keep it.',
-  'Of the people here today, you are the only one who saw it end this way.',
+  'Of everyone here today, you are the only one who saw it end this way.',
   'We will not be able to show you this again.',
   'This was the quiet one.',
+  'Thank you for your patience, which we did not require.',
+  'Your visit has been filed under the wrong heading, permanently.',
+  'This has been the version with you in it.',
+  'We enjoyed this. We are not certain we are allowed to.',
 ] as const;
 
 /* ------------------------------------------------------------------ */

@@ -21,7 +21,7 @@ import {
   DEFINITION, EXPERIENCE_ID, INITIAL_SCENE, SCENES, sceneById,
   resolveRoom, noticeFor,
 } from '../../engine/src/experiences/waiting-room.ts';
-import { renderRoom } from './render.ts';
+import { renderRoom, renderArtifact } from './render.ts';
 import { CONFIG, banner, type ImagineStatus } from './config.ts';
 import { Rng } from '../../engine/src/rng.ts';
 import { AMBIENT } from '../../engine/src/world.ts';
@@ -173,6 +173,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
   for (let t = tick - 6; t <= tick; t++) lines.push(...roomLines(t, s.seed, lastChoice));
 
   let artifact;
+  let shareToken: string | undefined;
   if (scene.id === 'end') {
     const check = await repo.verifyExperienceHistory(ctx.sessionId);
     const evs = await repo.eventsFor(ctx.sessionId);
@@ -191,6 +192,29 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
       historyIntact: check.intact,
       chainLength: check.chainLength,
     };
+
+    /*
+     * Mint ONCE and reuse. The artifact is a record of something that
+     * happened, so re-minting on every reload would hand the same visitor a
+     * new URL each time they refreshed — and quietly break any link they had
+     * already sent to a friend.
+     */
+    const existing = await repo.artifactForSession(ctx.sessionId);
+    if (existing) {
+      shareToken = existing.comparisonToken;
+    } else {
+      const token = repo.createComparisonToken();
+      await repo.createArtifact({
+        artifactId: `art_${ctx.sessionId}`,
+        sessionId: ctx.sessionId,
+        experienceId: s.experienceId,
+        title: artifact.title,
+        body: artifact.closing,
+        lines: artifact.lines,
+        comparisonToken: token,
+      });
+      shareToken = token;
+    }
   }
 
   return renderRoom({
@@ -203,6 +227,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     lines,
     visitCount: v?.visitCount ?? 0,
     origin: CONFIG.origin,
+    shareToken,
     noticeText: noticeFor(dwellMs),
     artifact,
   });
@@ -312,6 +337,34 @@ const server = createServer(async (req, res) => {
       const s = await repo.replaySession(ctx.sessionId, INITIAL_SCENE);
       res.setHeader('set-cookie', [...ctx.setCookies, cookie('sm_s', s.sessionId)]);
       return json(res, { ok: true, replayIndex: s.replayIndex });
+    }
+
+    /* ---- the public plane: a record anyone can open ---- */
+    if (path.startsWith('/a/')) {
+      const token = path.slice(3).replace(/[^a-z0-9]/gi, '');
+      const art = token ? await repo.artifactByToken(token) : null;
+      if (!art) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        return res.end('There is no record with that name. There may have been.');
+      }
+      const cookies = readCookies(req);
+      const html = renderArtifact({
+        token,
+        title: art.title,
+        lines: art.lines ?? [],
+        closing: art.body,
+        historyIntact: art.historyIntact,
+        chainLength: art.chainLength,
+        origin: CONFIG.origin,
+        isOwner: cookies.sm_s === art.sessionId,
+      });
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        // Public, identical for everyone, and the growth surface — so unlike
+        // the room this one SHOULD sit in a CDN.
+        'cache-control': 'public, max-age=300',
+      });
+      return res.end(html);
     }
 
     /* ---- the room itself ---- */

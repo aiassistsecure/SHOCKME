@@ -298,6 +298,11 @@ export class Repo {
     return full;
   }
 
+  /** Has this session already been given a record? Mint once, never twice. */
+  async artifactForSession(sessionId: string): Promise<Artifact | null> {
+    return clean<Artifact>(await this.db.one(`FROM artifacts WHERE ${eq('id', `art_${sessionId}`)}`));
+  }
+
   async artifactByToken(token: string): Promise<Artifact | null> {
     const ptr = await this.db.one(`FROM artifacts WHERE ${eq('id', `token:${token}`)}`);
     if (!ptr) return null;
