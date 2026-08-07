@@ -108,6 +108,20 @@ function startPump(): void {
 const liveVoices: Utterance[] = [];
 const LIVE_KEEP = 120;
 
+/**
+ * Monotonic cursor over utterances.
+ *
+ * THE BUG THIS FIXES: the stream emitted only when the TICK CHANGED, and each
+ * tick was emitted exactly once. A line spoken part-way through tick T was
+ * therefore never sent — tick T had already fired — so the speaker got "It is
+ * in the room now" and then watched nothing happen. It only appeared on a
+ * full reload. Found by M typing "Boooo!" into the live site.
+ *
+ * Human speech is not tick-quantised any more. Bot lines still arrive on the
+ * clock, because the room has a rhythm; people interrupt it.
+ */
+let voiceSeq = 0;
+
 function voicesInWindow(fromTick: number, toTick: number): Utterance[] {
   return liveVoices.filter((u) => u.tick >= fromTick && u.tick <= toTick);
 }
@@ -294,23 +308,38 @@ const server = createServer(async (req, res) => {
         connection: 'keep-alive',
       });
       let last = currentTick();
+      // Everything spoken before this connection opened is already on the
+      // page from the server render; only send what happens from here.
+      let sentVoiceSeq = voiceSeq;
       let busy = false;
-      const timer = setInterval(async () => {
-        const t = currentTick();
-        if (t === last || busy) return;
-        last = t; busy = true;
+
+      const timer = setInterval(() => {
+        if (busy) return;
+        busy = true;
         try {
-          const out = [
-            ...roomLines(t, s.seed),
-            ...voicesInWindow(t, t).map((u) => ({
+          // 1. HUMAN LINES FIRST, and on every pass — not on tick boundaries.
+          //    Someone speaking should show up within a second, not whenever
+          //    the room's clock next happens to turn over.
+          for (const u of liveVoices) {
+            if (u.seq <= sentVoiceSeq) continue;
+            sentVoiceSeq = u.seq;
+            res.write(`data: ${JSON.stringify({
               lineId: u.utteranceId, tick: u.tick, handle: u.handle,
-              kind: 'ambient' as const, text: u.text, diverged: false,
-            })),
-          ];
-          for (const o of out) res.write(`data: ${JSON.stringify(o)}\n\n`);
-        } catch { /* the room simply stays quiet this tick */ }
+              kind: 'ambient', text: u.text, diverged: false,
+            })}\n\n`);
+          }
+
+          // 2. the room's own voices, still on the clock
+          const t = currentTick();
+          if (t !== last) {
+            last = t;
+            for (const o of roomLines(t, s.seed)) {
+              res.write(`data: ${JSON.stringify(o)}\n\n`);
+            }
+          }
+        } catch { /* a dropped tick is never fatal */ }
         finally { busy = false; }
-      }, 1000);
+      }, 900);
       req.on('close', () => clearInterval(timer));
       return;
     }
@@ -389,6 +418,7 @@ const server = createServer(async (req, res) => {
         handle: handleFor(ctx.sessionId, HANDLE_STEMS),
         text: raw.replace(/\s+/g, ' ').trim(),
         tick: currentTick(),
+        seq: ++voiceSeq,
       };
       liveVoices.push(u);
       while (liveVoices.length > LIVE_KEEP) liveVoices.shift();
