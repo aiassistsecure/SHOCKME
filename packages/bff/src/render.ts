@@ -217,6 +217,26 @@ h1{
 /* --- the count, set against itself --- */
 .lede.dim{color:var(--phos-dim)}
 
+/*
+ * THE STING. A different temperature from everything around it — colder,
+ * larger, slower to arrive, with a rule above it. It should read as an
+ * interruption, not as the next paragraph.
+ */
+.sting{
+  margin:2rem 0 0;padding:1.1rem 0 0;border-top:1px solid var(--bleed-r);
+  font-family:var(--crt);font-size:clamp(1.25rem,3vw,1.75rem);line-height:1.32;
+  letter-spacing:.01em;color:var(--phos-hot);max-width:30ch;
+  opacity:0;animation:stingin 1.5s 2.1s cubic-bezier(.16,1,.3,1) forwards;
+  text-shadow:0 0 26px rgba(255,176,58,.32)
+}
+@keyframes stingin{
+  0%{opacity:0;transform:translateY(6px);filter:blur(3px)}
+  55%{opacity:1;filter:blur(0)}
+  58%{opacity:.72}
+  62%{opacity:1}
+  100%{opacity:1;transform:none;filter:blur(0)}
+}
+
 /* --- corridor: a door that was not there --- */
 .doorway{width:74px;height:118px;border:1px solid var(--phos-dim);position:relative;
   margin-bottom:1.6rem;animation:doorin 1.5s cubic-bezier(.16,1,.3,1) both}
@@ -505,6 +525,8 @@ export interface RoomView {
   noticeText?: string;
   facts?: Facts;
   secondHalf: SecondHalf;
+  /** A measured, true, unsettling sentence about THIS visitor. Rare. */
+  sting?: string;
   artifact?: {
     mark: string;
     title: string;
@@ -627,6 +649,17 @@ export function renderRoom(v: RoomView): string {
       ? `<div class="chair pending" id="latechair"></div>`
       : `<div class="chair" style="animation-delay:${0.5 + i * 0.09}s"></div>`,
   ).join('');
+
+  /*
+   * THE STING ARRIVES AFTER YOU HAVE SETTLED.
+   *
+   * It is deliberately NOT part of the scene's first paint. It lands a couple
+   * of seconds later, in its own visual register, so it reads as the room
+   * saying something rather than the page loading something.
+   */
+  const stingHtml = v.sting
+    ? `<p class="sting" id="sting">${esc(v.sting)}</p>`
+    : '';
 
   let main = '';
 
@@ -776,6 +809,8 @@ export function renderRoom(v: RoomView): string {
   } else {
     main = `<div class="objects r d3">${chairs}</div>`;
   }
+
+  main += stingHtml;
 
   const choices = v.choices.length ? `
     <div class="choices r d5">

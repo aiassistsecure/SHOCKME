@@ -31,6 +31,7 @@ import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, TICK_MS, type Ob
 import { screen, decline, rateCheck, noteSpoke, handleFor, MAX_LEN, type Utterance } from '../../engine/src/chat.ts';
 import { adminEnabled, tokenOk, gather, renderAdmin, ADMIN_TOKEN } from './admin.ts';
 import { draw, subjectFor, type Drawing } from '../../engine/src/drawing.ts';
+import { stingFor, MAX_STINGS } from '../../engine/src/experiences/sting.ts';
 import {
   resolveSecondHalf, comparisonLine, missedRooms, fmtDuration,
   ROOM_NAMES, TOTAL_ROOMS, ALL_ROOM_IDS, type Facts,
@@ -307,6 +308,36 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
   const facts = SECOND_HALF.has(scene.id) ? await buildFacts(ctx, s, resolved) : undefined;
   const secondHalf = resolveSecondHalf(s.seed);
 
+  /*
+   * A sting only exists if something specific and MEASURED is true about this
+   * visitor right now. Deterministic per session+scene so a replay reproduces
+   * the same shocks in the same places.
+   */
+  let sting: string | undefined;
+  if (facts) {
+    const evs = await repo.eventsFor(ctx.sessionId);
+    const buttonAt = evs.find((e) => e.kind === 'choice' &&
+      (e.payload as Record<string, unknown>)?.to === 'button')?.tick ?? 0;
+    const leftAt = evs.find((e) => e.kind === 'choice' &&
+      (e.payload as Record<string, unknown>)?.from === 'button')?.tick ?? 0;
+    const firedIds = new Set(evs.filter((e) => e.kind === 'sting')
+      .map((e) => String((e.payload as Record<string, unknown>)?.id ?? '')));
+
+    const hit = stingFor(s.seed, facts, {
+      sceneId: scene.id,
+      visitCount: v?.visitCount ?? 0,
+      buttonHesitationMs: buttonAt && leftAt ? Math.max(0, (leftAt - buttonAt) * TICK_MS) : 0,
+      fired: firedIds.size,
+    });
+
+    // Never repeat a sting to the same person — the second telling is a line
+    // of text, not a shock.
+    if (hit && !firedIds.has(hit.id)) {
+      sting = hit.line;
+      await repo.appendExperienceEvent(ctx.sessionId, 'sting', { id: hit.id, scene: scene.id });
+    }
+  }
+
   const lastChoice = state?.history.at(-1)?.toLowerCase();
   const lines: ObservedLine[] = [];
   for (let t = tick - 6; t <= tick; t++) {
@@ -405,6 +436,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     artifact,
     facts,
     secondHalf,
+    sting,
   });
 }
 
