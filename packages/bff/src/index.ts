@@ -32,6 +32,7 @@ import { screen, decline, rateCheck, noteSpoke, handleFor, MAX_LEN, type Utteran
 import { adminEnabled, tokenOk, gather, renderAdmin, ADMIN_TOKEN } from './admin.ts';
 import { draw, subjectFor, type Drawing } from '../../engine/src/drawing.ts';
 import { stingFor, MAX_STINGS } from '../../engine/src/experiences/sting.ts';
+import { echoFor, recognitionFor } from '../../engine/src/experiences/consequence.ts';
 import {
   resolveSecondHalf, comparisonLine, missedRooms, fmtDuration,
   ROOM_NAMES, TOTAL_ROOMS, ALL_ROOM_IDS, type Facts,
@@ -314,6 +315,8 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
    * the same shocks in the same places.
    */
   let sting: string | undefined;
+  let echo: string | undefined;
+  let recognition: string | undefined;
   if (facts) {
     const evs = await repo.eventsFor(ctx.sessionId);
     const buttonAt = evs.find((e) => e.kind === 'choice' &&
@@ -336,6 +339,30 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
       sting = hit.line;
       await repo.appendExperienceEvent(ctx.sessionId, 'sting', { id: hit.id, scene: scene.id });
     }
+
+    /*
+     * ECHO — a sentence in THIS room that could only exist because of what you
+     * did in an earlier one. Never repeated within a session.
+     */
+    const usedEchoes = new Set(evs.filter((e) => e.kind === 'echo')
+      .map((e) => String((e.payload as Record<string, unknown>)?.id ?? '')));
+    const ec = echoFor(s.seed, facts, scene.id, usedEchoes);
+    if (ec) {
+      echo = ec.line;
+      await repo.appendExperienceEvent(ctx.sessionId, 'echo', { id: ec.id, scene: scene.id });
+    }
+
+    /*
+     * RECOGNITION — the rail repeats your own private choice back at you, in a
+     * stranger's voice, ONCE per session ever. Twice and it reads as a script.
+     */
+    if (!evs.some((e) => e.kind === 'recognised') && facts.path.length >= 4) {
+      const rec = recognitionFor(s.seed, facts);
+      if (rec && new Rng(s.seed, 'rec-gate').bool(0.5)) {
+        recognition = rec.line;
+        await repo.appendExperienceEvent(ctx.sessionId, 'recognised', { id: rec.id, scene: scene.id });
+      }
+    }
   }
 
   const lastChoice = state?.history.at(-1)?.toLowerCase();
@@ -349,6 +376,22 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
                    kind: 'ambient', text: u.text, diverged: false });
     }
   }
+  /*
+   * The recognition enters the rail as an ORDINARY LINE — same handle pool,
+   * same styling, newest position. Nothing marks it as special, because the
+   * moment it looks special it reads as a feature instead of a coincidence.
+   */
+  if (recognition) {
+    lines.push({
+      lineId: `rec:${ctx.sessionId}`,
+      tick,
+      handle: handleFor(`rec:${s.seed}`, HANDLE_STEMS),
+      kind: 'ambient',
+      text: recognition,
+      diverged: false,
+    });
+  }
+
   lines.sort((a, b) => a.tick - b.tick);
 
   let artifact;
@@ -383,6 +426,20 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
          * not a manipulation. No streak, no timer, no guilt: just an accurate
          * sentence that happens to be unbearable to leave alone.
          */
+        /*
+         * THE ORACLE'S THIRD PLACE. The artifact must reference at least two
+         * recorded values, so alongside the chair line above this states a
+         * second consequence of something the visitor actually did.
+         */
+        (() => {
+          const f = facts;
+          if (!f) return 'the room has stopped keeping track for now.';
+          if (f.roomsSeen.includes('dark') && !f.pressed) return 'you stood in the dark and touched nothing. the room noted the restraint.';
+          if (f.roomsSeen.includes('dark')) return 'you were in the room when the lights went out. so was everybody else.';
+          if (f.roomsSeen.includes('recital')) return 'you were read something a stranger said. it is still theirs.';
+          if (f.yourQuote) return `you said ${JSON.stringify(f.yourQuote)}. the room has not put it down.`;
+          return 'you went through without saying anything. that is also on the record.';
+        })(),
         (() => {
           const seen = facts?.roomsSeen ?? [];
           const missed = missedRooms(seen);
@@ -437,6 +494,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     facts,
     secondHalf,
     sting,
+    echo,
   });
 }
 

@@ -216,6 +216,8 @@ h1{
 
 /* --- the count, set against itself --- */
 .lede.dim{color:var(--phos-dim)}
+/* the echo is ordinary prose, one shade warmer. nothing announces it. */
+.lede.echo{color:var(--phos);border-left:1px solid var(--line);padding-left:1rem}
 
 /*
  * THE STING. A different temperature from everything around it — colder,
@@ -527,6 +529,8 @@ export interface RoomView {
   secondHalf: SecondHalf;
   /** A measured, true, unsettling sentence about THIS visitor. Rare. */
   sting?: string;
+  /** A line that could only exist because of an earlier choice. */
+  echo?: string;
   artifact?: {
     mark: string;
     title: string;
@@ -659,6 +663,15 @@ export function renderRoom(v: RoomView): string {
    */
   const stingHtml = v.sting
     ? `<p class="sting" id="sting">${esc(v.sting)}</p>`
+    : '';
+
+  /*
+   * The echo sits INSIDE the room's own prose, not above it in a special box.
+   * A consequence that announces itself as a consequence is a mechanic; one
+   * that reads as just another thing the room said is a memory.
+   */
+  const echoHtml = v.echo
+    ? `<p class="lede echo r d4">${esc(v.echo)}</p>`
     : '';
 
   let main = '';
@@ -810,7 +823,7 @@ export function renderRoom(v: RoomView): string {
     main = `<div class="objects r d3">${chairs}</div>`;
   }
 
-  main += stingHtml;
+  main += echoHtml + stingHtml;
 
   const choices = v.choices.length ? `
     <div class="choices r d5">
