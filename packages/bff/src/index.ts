@@ -34,6 +34,7 @@ import { draw, subjectFor, type Drawing } from '../../engine/src/drawing.ts';
 import { stingFor, MAX_STINGS } from '../../engine/src/experiences/sting.ts';
 import { echoFor, recognitionFor } from '../../engine/src/experiences/consequence.ts';
 import { planFor, sceneIn, OFFICE_LINES, type Floorplan } from '../../engine/src/experiences/floorplan.ts';
+import { PIXEL_JS, validateEvent, siteForOrigin, normOrigin, type Site } from '../../engine/src/pixel.ts';
 import {
   classifyReferrer, arrivalBeat, deriveAfterimage, afterimageBeat,
   type ReferrerClass,
@@ -745,6 +746,81 @@ const server = createServer(async (req, res) => {
       return json(res, { ok: true, sceneId: choice.next });
     }
 
+    /* ---- the pixel: script, ingest, and its allowlist ---- */
+
+    if (path === '/pixel.js') {
+      res.writeHead(200, {
+        'content-type': 'application/javascript; charset=utf-8',
+        'cache-control': 'public, max-age=300',
+        'access-control-allow-origin': '*',   // the SCRIPT is public; the INGEST is not
+      });
+      return res.end(PIXEL_JS);
+    }
+
+    if (path === '/bff/px') {
+      /*
+       * THE ALLOWLIST IS THE CORS GATE. An origin that is not a registered,
+       * enabled property gets no CORS header and its events are dropped —
+       * one check doing both jobs, so they cannot disagree.
+       */
+      const origin = String(req.headers.origin ?? '');
+      const sites = (await repo.sites()) as Site[];
+      const site = siteForOrigin(sites, origin);
+
+      if (req.method === 'OPTIONS') {
+        if (!site) { res.writeHead(403); return res.end(); }
+        res.writeHead(204, {
+          'access-control-allow-origin': normOrigin(site.origin),
+          'access-control-allow-methods': 'POST, OPTIONS',
+          'access-control-allow-headers': 'content-type',
+          'access-control-max-age': '600',
+        });
+        return res.end();
+      }
+      if (req.method !== 'POST') { res.writeHead(405); return res.end(); }
+      if (!site) return json(res, { ok: false, reason: 'origin not registered' }, 403);
+
+      const payload = await body(req);
+      const list = Array.isArray(payload.events) ? payload.events.slice(0, 40) : [];
+      let accepted = 0, rejected = 0;
+      for (const raw of list) {
+        const v = validateEvent(raw, site, Date.now());
+        if (!v.ok || !v.event) { rejected++; continue; }
+        try { await repo.putPixelEvent(v.event as unknown as Record<string, unknown>); accepted++; }
+        catch { rejected++; }
+      }
+
+      res.setHeader('access-control-allow-origin', normOrigin(site.origin));
+      return json(res, { ok: true, accepted, rejected });
+    }
+
+    /* ---- the back room manages properties ---- */
+    if (path === '/admin/site' && req.method === 'POST') {
+      const given = url.searchParams.get('k') ?? readCookies(req).sm_admin ?? '';
+      if (!adminEnabled() || !tokenOk(given)) {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        return res.end('not here. or not yet.');
+      }
+      const f = await body(req);
+      const siteId = String(f.siteId ?? '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40);
+      const originIn = normOrigin(String(f.origin ?? ''));
+      if (!siteId || !originIn) return json(res, { ok: false, error: 'siteId and a valid origin are required' }, 400);
+
+      await repo.putSite({
+        siteId,
+        label: String(f.label ?? siteId).slice(0, 60),
+        origin: originIn,
+        /*
+         * Disabling is how a property is removed. The row stays, because the
+         * store is append-only and because an allowlist you can silently
+         * empty is one you cannot audit.
+         */
+        enabled: f.enabled !== false && f.enabled !== 'false',
+      });
+      res.writeHead(302, { location: `/admin?k=${encodeURIComponent(given)}` });
+      return res.end();
+    }
+
     /* ---- the memory choice, and it is honoured ---- */
     if (path === '/bff/consent' && req.method === 'POST') {
       const choice = String((await body(req)).choice ?? '');
@@ -954,6 +1030,8 @@ const server = createServer(async (req, res) => {
         NEDB_URL: CONFIG.nedbUrl,
         NEDB_DB: CONFIG.nedbDb,
         SHOCKME_ORIGIN: CONFIG.origin,
+        // the admin's own token, so the property form can post back to itself
+        __k: given,
         SHOCKME_WORLD_SEED: CONFIG.worldSeed,
         SHOCKME_BLOCKLIST: process.env.SHOCKME_BLOCKLIST ? 'set' : '(built-in only)',
         voice: imagineStatus,

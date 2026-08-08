@@ -60,6 +60,14 @@ export interface Stats {
   drawings: { total: number; blank: number; avgMs: number; subjects: { subject: string; n: number }[] };
   /** Opt-in only, and deliberately NOT joined to behaviour. Address + when. */
   subs: { email: string; tick: number }[];
+  /** Registered first-party properties, and what the pixel has collected. */
+  sites: { siteId: string; label: string; origin: string; enabled: boolean }[];
+  pixel: {
+    total: number;
+    bySite: { site: string; events: number; visitors: number }[];
+    byType: { type: string; n: number }[];
+    byReferrer: { cls: string; n: number }[];
+  };
 }
 
 const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 1000) / 10);
@@ -75,13 +83,15 @@ function quantile(sorted: number[], q: number): number {
  * tracked — so the numbers cannot drift away from what actually happened.
  */
 export async function gather(repo: Repo, connections: number): Promise<Stats> {
-  const [visitors, sessions, events, artifacts, verify, subs] = await Promise.all([
+  const [visitors, sessions, events, artifacts, verify, subs, sites, px] = await Promise.all([
     repo.db.rows('FROM visitors'),
     repo.db.rows('FROM sessions'),
     repo.db.rows('FROM events ORDER BY tick'),
     repo.db.rows('FROM artifacts'),
     repo.db.verify(),
     repo.subscribers(),
+    repo.sites(),
+    repo.pixelEvents(),
   ]);
 
   const evOf = (kind: string) => events.filter((e) => e.kind === kind);
@@ -158,6 +168,28 @@ export async function gather(repo: Repo, connections: number): Promise<Stats> {
     },
     live: { tick: currentTick(), population: populationAt(currentTick()), connections },
     subs: subs.slice(-100).reverse(),
+    sites,
+    pixel: (() => {
+      const bySite = new Map<string, { events: number; visitors: Set<string> }>();
+      const byType = new Map<string, number>();
+      const byRef = new Map<string, number>();
+      for (const e of px) {
+        const sid = String(e.site ?? '?');
+        const b = bySite.get(sid) ?? { events: 0, visitors: new Set<string>() };
+        b.events++; b.visitors.add(String(e.visitorId ?? ''));
+        bySite.set(sid, b);
+        const t = String((e as Record<string, unknown>).type ?? e.eventId ?? '?').replace(/^px_.*/, 'event');
+        byType.set(t, (byType.get(t) ?? 0) + 1);
+        const rc = String(e.referrerClass ?? 'unknown');
+        byRef.set(rc, (byRef.get(rc) ?? 0) + 1);
+      }
+      return {
+        total: px.length,
+        bySite: [...bySite.entries()].map(([site, b]) => ({ site, events: b.events, visitors: b.visitors.size })),
+        byType: [...byType.entries()].map(([type, n]) => ({ type, n })).sort((a, b) => b.n - a.n),
+        byReferrer: [...byRef.entries()].map(([cls, n]) => ({ cls, n })).sort((a, b) => b.n - a.n),
+      };
+    })(),
     spokenPerSession: sessions.length ? Math.round((evOf('said').length / sessions.length) * 100) / 100 : 0,
     drawings: (() => {
       const d = evOf('drawn');
@@ -235,6 +267,14 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ph)}
 .said{color:var(--ph)}
 .sid{color:var(--pd);font-size:.7rem}
 .ok{color:var(--good)}.bad{color:var(--bad)}
+.siteform{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+.siteform input,.siteform select{background:transparent;border:1px solid var(--line);
+  color:var(--phos-hot);font:inherit;font-size:.8rem;padding:.45rem .6rem;outline:none}
+.siteform button{background:transparent;border:1px solid var(--phos);color:var(--phos-hot);
+  font:inherit;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;
+  padding:.45rem .9rem;cursor:pointer}
+.siteform button:hover{background:var(--phos);color:#120b04}
+code{font-size:.72rem;color:var(--phos-hot);word-break:break-all}
 .note{color:var(--pd);font-size:.75rem;line-height:1.6;border-left:2px solid var(--line);padding-left:.9rem;margin-top:.8rem}
 .flex{display:flex;gap:.7rem;align-items:center}
 @media(max-width:640px){.k{min-width:120px}body{padding:1.2rem .8rem 4rem}}
@@ -301,6 +341,46 @@ ${s.said.length ? s.said.map((u) => `<tr><td class="sid">${esc(ago(u.tick))}</td
 <div class="note">This is the moderation view. Everything here already passed
 screening; anything that should not have is a gap in the blocklist — add it to
 <b>SHOCKME_BLOCKLIST</b> and restart.</div>
+
+<h2>Properties</h2>
+<div class="note">Second properties are managed HERE, not in a deploy. An origin
+that is not listed and enabled has its pixel events rejected — the allowlist is
+also the CORS gate, so the two can never disagree. Disabling is how a property
+is removed: the row stays, because the store is append-only and an allowlist
+you can silently empty is one you cannot audit.</div>
+<table>
+<tr><th>id</th><th>label</th><th>origin</th><th class="num">state</th></tr>
+${s.sites.length ? s.sites.map((x) => `<tr><td>${esc(x.siteId)}</td><td>${esc(x.label)}</td><td class="sid">${esc(x.origin)}</td><td class="num">${x.enabled ? 'enabled' : 'disabled'}</td></tr>`).join('')
+  : '<tr><td colspan="4" class="sid">no properties registered</td></tr>'}
+</table>
+<form method="POST" action="/admin/site?k=${encodeURIComponent(env.__k ?? '')}" class="siteform">
+  <input name="siteId" placeholder="siteId (a-z0-9-)" required>
+  <input name="label" placeholder="label">
+  <input name="origin" placeholder="https://example.org" required>
+  <select name="enabled"><option value="true">enabled</option><option value="false">disabled</option></select>
+  <button type="submit">Save property</button>
+</form>
+<div class="note">Install on that property:<br>
+<code>&lt;script src="${esc(env.SHOCKME_ORIGIN ?? '')}/pixel.js" data-site="YOUR_SITE_ID"&gt;&lt;/script&gt;</code><br>
+It sends nothing until <code>shockme.consent('granted')</code> has been called there —
+the tag cannot grant consent on the visitor's behalf.</div>
+
+<h2>Pixel</h2>
+${row('events collected', s.pixel.total)}
+<table>
+<tr><th>property</th><th class="num">events</th><th class="num">visitors</th></tr>
+${s.pixel.bySite.length ? s.pixel.bySite.map((b) => `<tr><td>${esc(b.site)}</td><td class="num">${b.events}</td><td class="num">${b.visitors}</td></tr>`).join('')
+  : '<tr><td colspan="3" class="sid">the pixel has not reported yet</td></tr>'}
+</table>
+<table>
+<tr><th>arrival class</th><th class="num">n</th></tr>
+${s.pixel.byReferrer.length ? s.pixel.byReferrer.map((b) => `<tr><td>${esc(b.cls)}</td><td class="num">${b.n}</td></tr>`).join('')
+  : '<tr><td colspan="2" class="sid">nothing yet</td></tr>'}
+</table>
+<div class="note">Each property gets its OWN first-party visitor id. Identity is
+NOT stitched across origins — third-party cookies are dead and the only
+remaining ways to do it are a shared login (we have none) or fingerprinting
+(refused). Per-property is what is honestly available.</div>
 
 <h2>The list</h2>
 ${row('subscribers', s.subs.length)}

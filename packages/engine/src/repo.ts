@@ -136,6 +136,38 @@ export class Repo {
     return { created: true };
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Properties (the pixel's allowlist)                                  */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Sites are DATA, not config. M wants second properties adjusted from the
+   * admin panel, which means a deploy must never be the way to add one —
+   * and it also means the allowlist is auditable, because every change is a
+   * new hash-linked row rather than an edit.
+   */
+  async putSite(site: { siteId: string; label: string; origin: string; enabled: boolean }): Promise<void> {
+    await this.db.put('sites', `site:${site.siteId}`, { ...site, createdTick: currentTick() });
+  }
+
+  async sites(): Promise<{ siteId: string; label: string; origin: string; enabled: boolean; createdTick: number }[]> {
+    const rows = await this.db.rows('FROM sites ORDER BY createdTick');
+    return rows.map((r) => ({
+      siteId: String(r.siteId ?? ''), label: String(r.label ?? ''),
+      origin: String(r.origin ?? ''), enabled: r.enabled !== false,
+      createdTick: Number(r.createdTick ?? 0),
+    })).filter((r) => r.siteId);
+  }
+
+  /** Append one accepted pixel event. Never updates, never deletes. */
+  async putPixelEvent(ev: Record<string, unknown>): Promise<void> {
+    await this.db.put('pixel_events', `px:${String(ev.eventId)}`, { ...ev, tick: currentTick() });
+  }
+
+  async pixelEvents(): Promise<Record<string, unknown>[]> {
+    return this.db.rows('FROM pixel_events ORDER BY tick');
+  }
+
   async subscribers(): Promise<{ email: string; tick: number }[]> {
     const rows = await this.db.rows('FROM subscribers ORDER BY tick');
     return rows.map((r) => ({ email: String(r.email ?? ''), tick: Number(r.tick ?? 0) }));
