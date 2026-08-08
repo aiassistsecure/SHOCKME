@@ -18,6 +18,7 @@
 
 import { createHash } from 'node:crypto';
 import { Rng } from '../rng.ts';
+import { SECOND_HALF_SCENES } from './second-half.ts';
 
 export const EXPERIENCE_ID = 'waiting-room';
 export const EXPERIENCE_VERSION = '0.1.0';
@@ -217,14 +218,24 @@ export const SCENES: SceneDef[] = [
       { id: 'disagree', label: 'Disagree with the room', next: 'button' },
     ],
   },
+  /*
+   * THE BUTTON IS NO LONGER THE ENDING.
+   *
+   * This is the ONLY edit to an existing scene — two `next` pointers. Every
+   * line of copy above is untouched, as M asked. The button used to drop
+   * straight into the artifact, which meant the experience peaked at 21% and
+   * then simply stopped. It now opens into the second half (see
+   * ./second-half.ts), which forks so that no single visit sees every room.
+   */
   {
     id: 'button',
     renderer: 'button',
     choices: [
-      { id: 'press', label: 'Press it', next: 'end' },
-      { id: 'refuse', label: 'Refuse', next: 'end' },
+      { id: 'press', label: 'Press it', next: 'corridor' },
+      { id: 'refuse', label: 'Refuse', next: 'corridor' },
     ],
   },
+  ...SECOND_HALF_SCENES,
   { id: 'end', renderer: 'artifact', choices: [] },
 ];
 

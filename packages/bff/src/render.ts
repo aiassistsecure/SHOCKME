@@ -10,6 +10,8 @@
  * Everything respects prefers-reduced-motion.
  */
 
+import type { Facts, SecondHalf } from '../../engine/src/experiences/second-half.ts';
+import { comparisonLine, fmtDuration, missedRooms, ROOM_NAMES, TOTAL_ROOMS } from '../../engine/src/experiences/second-half.ts';
 import type { Resolved } from '../../engine/src/experiences/waiting-room.ts';
 import type { ObservedLine } from '../../engine/src/world.ts';
 
@@ -169,6 +171,52 @@ h1{
 .choice:hover .arrow{opacity:1;color:var(--phos-hot)}
 
 /* --- the count, set against itself --- */
+.lede.dim{color:var(--phos-dim)}
+
+/* --- corridor: a door that was not there --- */
+.doorway{width:74px;height:118px;border:1px solid var(--phos-dim);position:relative;
+  margin-bottom:1.6rem;animation:doorin 1.5s cubic-bezier(.16,1,.3,1) both}
+.doorway.open{border-color:var(--phos)}
+.doorlight{position:absolute;inset:auto 0 0 0;height:0;background:linear-gradient(
+  to top,rgba(255,176,58,.55),transparent);animation:spill 2.6s 1s ease-out forwards}
+@keyframes doorin{from{opacity:0;transform:perspective(700px) rotateY(-72deg);transform-origin:left}
+  to{opacity:1;transform:none}}
+@keyframes spill{to{height:100%}}
+.reveal{max-width:38ch;font-size:1.12rem;line-height:1.55;margin-bottom:.5rem;
+  animation:fadeup .9s 1.1s both}
+.reveal.sub{color:var(--phos-dim);font-size:.96rem;animation-delay:2.1s}
+
+/* --- ledger: measured numbers, arriving one at a time --- */
+.ledger{max-width:460px;margin-bottom:1.6rem}
+.ledgerrow{display:flex;align-items:baseline;gap:.8rem;padding:.5rem 0;
+  border-bottom:1px solid var(--line);opacity:0;animation:fadeup .7s both}
+.ledgerrow b{font-family:var(--crt);font-size:1.9rem;line-height:1;color:var(--phos-hot);
+  min-width:3.4ch;text-align:right;text-shadow:0 0 14px rgba(255,176,58,.3)}
+.ledgerrow span{font-size:.86rem;color:var(--phos-dim);letter-spacing:.03em}
+
+/* --- recital: somebody else's actual words --- */
+.quote{border-left:2px solid var(--phos);padding:.7rem 0 .7rem 1.1rem;margin:0 0 1.2rem;
+  max-width:42ch;font-size:1.15rem;line-height:1.5;animation:fadeup .9s both}
+.quote cite{display:block;margin-top:.5rem;font-size:.74rem;font-style:normal;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--phos-dim)}
+.quote.mine{border-left-color:var(--bleed-r)}
+.quote.mine cite{color:var(--bleed-r)}
+
+/* --- inventory: read back to yourself --- */
+.inventory{list-style:none;max-width:46ch;margin-bottom:1.4rem}
+.inventory li{padding:.42rem 0 .42rem 1.4rem;position:relative;font-size:.98rem;
+  border-bottom:1px solid var(--line);opacity:0;animation:fadeup .6s both}
+.inventory li::before{content:"—";position:absolute;left:0;color:var(--phos-dim)}
+
+/* --- dark: the tempo spike --- */
+.dark{min-height:44vh;display:flex;flex-direction:column;justify-content:center;gap:.9rem}
+.darkline{font-size:1.1rem;letter-spacing:.02em;opacity:0;animation:fadeup .8s both}
+.darkline.hot{color:var(--phos-hot);font-size:1.3rem;
+  text-shadow:0 0 18px rgba(255,176,58,.45)}
+/* the page itself dims for this room only */
+body.lightsout{background:#050301}
+body.lightsout .wrap{filter:brightness(.82)}
+
 .tally{max-width:420px;margin-bottom:1.8rem;border:1px solid var(--line)}
 .tallyrow{display:flex;justify-content:space-between;align-items:baseline;
   padding:.75rem 1rem;border-bottom:1px solid rgba(42,35,24,.7);font-size:.9rem;color:var(--phos-dim)}
@@ -394,6 +442,8 @@ export interface RoomView {
   nudges: string[];
   lateChairAfterMs: number;
   noticeText?: string;
+  facts?: Facts;
+  secondHalf: SecondHalf;
   artifact?: {
     mark: string;
     title: string;
@@ -486,6 +536,86 @@ export function renderRoom(v: RoomView): string {
         <button class="commit" id="commit" type="submit">That is my count</button>
       </form>
       <p class="lede r d4" id="verdict">Count them yourself. The room has already made up its mind.</p>`;
+  } else if (v.renderer === 'corridor') {
+    /* The reveal. Two lines, staggered, then the fork. */
+    main = `
+      <div class="corridor r d3" id="corridor">
+        <div class="doorway"><span class="doorlight"></span></div>
+        <p class="reveal">${esc(v.secondHalf.corridorOpener)}</p>
+        <p class="reveal sub">${esc(v.secondHalf.corridorSub)}</p>
+      </div>`;
+  } else if (v.renderer === 'ledger') {
+    /* EVERY NUMBER HERE IS MEASURED. Nothing on this screen is invented. */
+    const f = v.facts!;
+    main = `
+      <div class="ledger r d3">
+        ${[
+          ['people have been in this room', f.totalVisitors.toLocaleString()],
+          ['of them reached the end', f.finished.toLocaleString()],
+          ['you are visitor number', f.visitorNumber.toLocaleString()],
+          ['you have been here', fmtDuration(f.yourMs)],
+          ['most people last', fmtDuration(f.medianMs)],
+          ['are in here with you right now', String(f.population)],
+        ].map(([label, val], i) => `
+          <div class="ledgerrow" style="animation-delay:${0.35 + i * 0.22}s">
+            <b>${esc(val)}</b><span>${esc(label)}</span>
+          </div>`).join('')}
+      </div>
+      <p class="lede r d5">${esc(comparisonLine(f.yourMs, f.medianMs))}</p>
+      <p class="lede dim r d5">${esc(v.secondHalf.ledgerCloser)}</p>`;
+  } else if (v.renderer === 'recital') {
+    /* A real stranger's real words. Or your own, handed back unattributed. */
+    const f = v.facts!;
+    const q = f.quote?.text
+      ? `<blockquote class="quote r d3">${esc(f.quote.text)}
+           <cite>${esc(f.quote.handle)} &middot; ${f.quote.agoMin === 0 ? 'just now' : `${f.quote.agoMin} minutes ago`}</cite>
+         </blockquote>
+         <p class="lede r d4">${esc(v.secondHalf.recitalFrame)}</p>`
+      : `<p class="lede r d3">Nobody has said anything in here yet. You are early.</p>`;
+    const mine = f.yourQuote
+      ? `<blockquote class="quote mine r d5">${esc(f.yourQuote)}
+           <cite>and this one is yours</cite></blockquote>`
+      : `<p class="lede dim r d5">${esc(v.secondHalf.recitalSilence)}</p>`;
+    main = q + mine;
+  } else if (v.renderer === 'inventory') {
+    /* Being read back to yourself, using only what you handed over. */
+    const f = v.facts!;
+    const items = [
+      `you arrived ${fmtDuration(f.yourMs)} ago`,
+      ...(f.path.length ? [`you chose: ${f.path.join(', ').toLowerCase()}`] : []),
+      // When the guess happens to match the drawing the line goes flat, so the
+      // room's own stubborn claim is kept in frame. It never concedes.
+      ...(f.guess !== undefined ? [f.guess === f.chairsDrawn
+        ? `you said there were ${f.guess} chairs. there were ${f.chairsDrawn}. the room still says 4.`
+        : `you said there were ${f.guess} chairs. there were ${f.chairsDrawn}.`] : []),
+      f.pressed ? 'you pressed the button' : 'you left the button alone',
+      `you have been in ${f.roomsSeen.length} of ${TOTAL_ROOMS} rooms`,
+      ...(f.yourQuote ? [`you said: \u201C${f.yourQuote}\u201D`] : ['you did not speak']),
+    ];
+    main = `
+      <p class="lede r d3">${esc(v.secondHalf.inventoryFrame)}</p>
+      <ul class="inventory r d3">
+        ${items.map((t, i) => `<li style="animation-delay:${0.4 + i * 0.19}s">${esc(t)}</li>`).join('')}
+      </ul>`;
+  } else if (v.renderer === 'dark') {
+    /* Tempo spike. Lines land fast, one after another, then the choices. */
+    main = `
+      <div class="dark r d3" id="darkroom">
+        ${v.secondHalf.darkLines.map((t, i) =>
+          `<p class="darkline" style="animation-delay:${0.5 + i * 0.9}s">${esc(t)}</p>`).join('')}
+        <p class="darkline hot" style="animation-delay:${0.5 + v.secondHalf.darkLines.length * 0.9}s">
+          There are ${v.facts!.population} of us in here.</p>
+      </div>`;
+  } else if (v.renderer === 'threshold') {
+    const f = v.facts!;
+    const missed = missedRooms(f.roomsSeen);
+    main = `
+      <div class="r d3">
+        <div class="doorway open"><span class="doorlight"></span></div>
+        <p class="lede">${esc(v.secondHalf.thresholdLine)}</p>
+        ${missed.length ? `<p class="lede dim">You did not find ${esc(missed.slice(0, 2).join(' or '))}.
+          They were here the whole time.</p>` : ''}
+      </div>`;
   } else if (v.renderer === 'button') {
     main = `
       <div class="r d3">
@@ -572,6 +702,7 @@ export function renderRoom(v: RoomView): string {
 ${chatRail(v.lines)}
 <script type="module">
 const NUDGES = ${JSON.stringify(v.nudges)};
+if (document.getElementById('darkroom')) document.body.classList.add('lightsout');
 const NUDGE_LATE_CHAIR = ${v.lateChairAfterMs};
 const CHAIRS_FINAL = ${finalChairs};
 const CHAIRS_DIFF = ${Math.abs(finalChairs - v.resolved.claimedChairCount)};

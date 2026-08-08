@@ -27,10 +27,14 @@ import { CONFIG, banner, type ImagineStatus } from './config.ts';
 import { Rng } from '../../engine/src/rng.ts';
 import { AMBIENT } from '../../engine/src/world.ts';
 import { Imagine } from '../../engine/src/imagine.ts';
-import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, type ObservedLine } from '../../engine/src/world.ts';
+import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, TICK_MS, type ObservedLine } from '../../engine/src/world.ts';
 import { screen, decline, rateCheck, noteSpoke, handleFor, MAX_LEN, type Utterance } from '../../engine/src/chat.ts';
 import { adminEnabled, tokenOk, gather, renderAdmin, ADMIN_TOKEN } from './admin.ts';
 import { draw, subjectFor, type Drawing } from '../../engine/src/drawing.ts';
+import {
+  resolveSecondHalf, comparisonLine, missedRooms, fmtDuration,
+  ROOM_NAMES, TOTAL_ROOMS, ALL_ROOM_IDS, type Facts,
+} from '../../engine/src/experiences/second-half.ts';
 
 const PORT = CONFIG.port;
 const repo = new Repo(new Nedb({ url: CONFIG.nedbUrl, db: CONFIG.nedbDb }));
@@ -199,8 +203,97 @@ const BODIES: Record<string, string> = {
   notice: 'There is a notice on the wall. It has been updated recently.',
   counting: '',
   button: 'There is a button. It would prefer you did not.',
+  // the second half — see engine/src/experiences/second-half.ts
+  corridor: '',
+  ledger: 'The room has been keeping records. It would like to show you yours.',
+  recital: '',
+  inventory: '',
+  dark: '',
+  threshold: '',
   end: '',
 };
+
+/*
+ * FACTS ARE MEASURED, NEVER INVENTED.
+ *
+ * The second half's whole effect is that the room can prove it was paying
+ * attention. One fabricated number and the trick is dead on the second visit,
+ * so everything here comes out of the event log or is omitted.
+ */
+async function buildFacts(
+  ctx: Ctx, s: Awaited<ReturnType<Repo['getSession']>>, resolved: ReturnType<typeof resolveRoom>,
+): Promise<Facts> {
+  const [visitors, sessions, allEvents, myEvents] = await Promise.all([
+    repo.db.rows('FROM visitors'),
+    repo.db.rows('FROM sessions'),
+    repo.db.rows('FROM events ORDER BY tick'),
+    repo.eventsFor(ctx.sessionId),
+  ]);
+
+  const payload = (e: { payload?: unknown }) => (e.payload ?? {}) as Record<string, unknown>;
+
+  // your real elapsed time, from your own dwell events
+  const myDwells = myEvents.filter((e) => e.kind === 'dwell').map((e) => Number(payload(e).dwellMs ?? 0));
+  /*
+   * Dwell is only logged every 6s, so a fast visitor can reach the ledger with
+   * none recorded and be told they have been here "0 seconds" — which reads as
+   * a broken counter and destroys the one thing this room is selling. Fall
+   * back to the session's real age, which is always true.
+   */
+  const sessionAgeMs = Math.max(0, (currentTick() - Number(s!.startedTick ?? currentTick())) * TICK_MS);
+  const yourMs = Math.max(myDwells.length ? Math.max(...myDwells) : 0, sessionAgeMs, 1000);
+
+  // the real median across every session that recorded one
+  const perSession = new Map<string, number>();
+  for (const e of allEvents) {
+    if (e.kind !== 'dwell') continue;
+    const id = String(e.sessionId);
+    perSession.set(id, Math.max(perSession.get(id) ?? 0, Number(payload(e).dwellMs ?? 0)));
+  }
+  const spread = [...perSession.values()].sort((a, b) => a - b);
+  const medianMs = spread.length ? spread[Math.floor(spread.length / 2)]! : 0;
+
+  // a real line, from a real stranger, that is not yours
+  const nowTickEarly = currentTick();
+  const said = allEvents.filter((e) => e.kind === 'said');
+  const theirs = said.filter((e) => String(e.sessionId) !== ctx.sessionId);
+  // Prefer something said recently. A 16-hour-old line reads like a database
+  // dump; a line from four minutes ago reads like someone is in the next room.
+  const recent = theirs.filter((e) => (nowTickEarly - Number(e.tick ?? 0)) * TICK_MS < 45 * 60_000);
+  const pool = recent.length ? recent : theirs.slice(-8);
+  const pick = pool.length ? pool[pool.length - 1 - Math.floor(Math.random() * Math.min(4, pool.length))]! : undefined;
+  const nowTick = currentTick();
+
+  const mine = said.filter((e) => String(e.sessionId) === ctx.sessionId).at(-1);
+
+  // rooms you have genuinely been in
+  const roomsSeen = ['arrival', ...myEvents.filter((e) => e.kind === 'choice')
+    .map((e) => String(payload(e).to ?? ''))]
+    .filter((id) => (ALL_ROOM_IDS as readonly string[]).includes(id));   // 'end' is not a room
+
+  const counted = myEvents.find((e) => e.kind === 'counted');
+
+  return {
+    visitorNumber: visitors.findIndex((v) => String(v.visitorId) === ctx.visitorId) + 1 || visitors.length,
+    totalVisitors: visitors.length,
+    finished: new Set(allEvents.filter((e) => e.kind === 'choice' && payload(e).to === 'end')
+      .map((e) => String(e.sessionId))).size,
+    yourMs,
+    medianMs,
+    quote: pick ? {
+      text: String(payload(pick).text ?? ''),
+      handle: String(payload(pick).handle ?? 'someone'),
+      agoMin: Math.max(0, Math.round(((nowTick - Number(pick.tick ?? nowTick)) * TICK_MS) / 60000)),
+    } : undefined,
+    yourQuote: mine ? String(payload(mine).text ?? '') : undefined,
+    path: myEvents.filter((e) => e.kind === 'choice').map((e) => String(payload(e).label ?? '')),
+    guess: counted ? Number(payload(counted).guess) : undefined,
+    chairsDrawn: resolved.chairCount,
+    pressed: myEvents.some((e) => e.kind === 'press'),
+    population: inhabitantsAt(nowTick).length + openStreams,
+    roomsSeen: [...new Set(roomsSeen)],
+  };
+}
 
 async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
   const s = (await repo.getSession(ctx.sessionId))!;
@@ -209,6 +302,10 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
   const resolved = resolveRoom(s.seed, v?.visitCount ?? 0);   // seed used HERE, server-side
   const tick = currentTick();
   const state = await repo.getSessionState(ctx.sessionId);
+
+  const SECOND_HALF = new Set(['corridor', 'ledger', 'recital', 'inventory', 'dark', 'threshold', 'end']);
+  const facts = SECOND_HALF.has(scene.id) ? await buildFacts(ctx, s, resolved) : undefined;
+  const secondHalf = resolveSecondHalf(s.seed);
 
   const lastChoice = state?.history.at(-1)?.toLowerCase();
   const lines: ObservedLine[] = [];
@@ -247,6 +344,20 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
         `it said: ${resolved.anomaly.line.toLowerCase()}`,
         pressed ? `you pressed the button. the button disagrees.` : `you left the button alone. so did everyone.`,
         `${state?.history.length ?? 0} choices, none of them the same as theirs.`,
+        /*
+         * THE HOOK, STATED WITHOUT PRESSURE.
+         *
+         * The corridor forks, so a complete run sees 7 of 12 rooms. Naming
+         * what you missed is the entire retention mechanic — and it is a fact,
+         * not a manipulation. No streak, no timer, no guilt: just an accurate
+         * sentence that happens to be unbearable to leave alone.
+         */
+        (() => {
+          const seen = facts?.roomsSeen ?? [];
+          const missed = missedRooms(seen);
+          if (!missed.length) return `you have been in all ${TOTAL_ROOMS} rooms. nobody does this on the first visit.`;
+          return `there are ${TOTAL_ROOMS} rooms. you found ${seen.length}. you did not find ${missed.slice(0, 2).join(' or ')}.`;
+        })(),
       ],
       closing: pressed ? resolved.nonPress : 'nothing was pressed. nothing ever is.',
       historyIntact: check.intact,
@@ -292,6 +403,8 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     lateChairAfterMs: resolved.lateChairAfterMs,
     noticeText: noticeFor(dwellMs),
     artifact,
+    facts,
+    secondHalf,
   });
 }
 
@@ -300,6 +413,12 @@ function titleFor(sceneId: string, r: ReturnType<typeof resolveRoom>): string {
     case 'seated': return 'You are seated.';
     case 'standing': return 'You remain standing.';
     case 'notice': return 'The notice.';
+    case 'corridor': return 'A corridor.';
+    case 'ledger': return 'The ledger.';
+    case 'recital': return 'The recital.';
+    case 'inventory': return 'What the room has.';
+    case 'dark': return 'The lights go out.';
+    case 'threshold': return 'The threshold.';
     case 'counting': return r.anomaly.line;
     case 'button': return 'Ah.';
     default: return 'The room.';
@@ -380,6 +499,19 @@ const server = createServer(async (req, res) => {
       await repo.appendExperienceEvent(ctx.sessionId, 'choice', {
         choiceId: choice.id, label: choice.label, from: scene.id, to: choice.next,
       });
+
+      /*
+       * The button can be pressed two ways — the big button calls /bff/press,
+       * but the choice list underneath it says "Press it" too. Only the first
+       * recorded a press event, so a visitor who used the menu was told later
+       * that they "left the button alone" while their own path said otherwise.
+       * The second half quotes both of those back at you, so the contradiction
+       * was guaranteed to be seen.
+       */
+      if (choice.id === 'press' && scene.id === 'button') {
+        const already = (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'press');
+        if (!already) await repo.appendExperienceEvent(ctx.sessionId, 'press', { via: 'menu' });
+      }
       await repo.advanceScene(ctx.sessionId, choice.next);
       res.setHeader('set-cookie', ctx.setCookies);
       return json(res, { ok: true, sceneId: choice.next });
