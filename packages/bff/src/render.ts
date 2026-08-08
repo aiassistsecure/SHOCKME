@@ -126,6 +126,25 @@ h1{
 .chair:hover{transform:translateY(-5px);border-color:var(--phos);
   box-shadow:0 0 14px rgba(255,179,71,.35)}
 
+/* --- the room talking to you while you do nothing --- */
+.aside{
+  min-height:1.9em;margin:-1rem 0 1.6rem;font-family:var(--crt);
+  font-size:clamp(1.15rem,2.4vw,1.5rem);color:var(--phos);letter-spacing:.02em;
+  opacity:0;transform:translateY(4px);transition:opacity .6s,transform .6s
+}
+.aside.show{opacity:.92;transform:none}
+
+/* a chair that arrives late, while you are looking at it */
+.chair.late{animation:arrive 1.1s cubic-bezier(.16,1,.3,1) forwards}
+@keyframes arrive{
+  0%{opacity:0;transform:translateY(-9px) scale(.9)}
+  60%{opacity:1;transform:translateY(2px) scale(1.02)}
+  100%{opacity:1;transform:none}
+}
+/* chairs flinch when touched. everything should react. */
+.chair{cursor:default}
+.chair:active{transform:translateY(-2px) rotate(2deg)}
+
 /* --- choices: terminal menu --- */
 .choices{display:flex;flex-direction:column;gap:0;max-width:540px}
 .choice{
@@ -148,6 +167,14 @@ h1{
 .choice:hover::after,.choice:focus-visible::after{opacity:1;left:.15rem}
 .choice .arrow{color:var(--phos-dim);opacity:.5;transition:opacity .25s}
 .choice:hover .arrow{opacity:1;color:var(--phos-hot)}
+
+/* --- the count, set against itself --- */
+.tally{max-width:420px;margin-bottom:1.8rem;border:1px solid var(--line)}
+.tallyrow{display:flex;justify-content:space-between;align-items:baseline;
+  padding:.75rem 1rem;border-bottom:1px solid rgba(42,35,24,.7);font-size:.9rem;color:var(--phos-dim)}
+.tallyrow:last-child{border-bottom:0}
+.tallyrow b{font-family:var(--crt);font-size:2rem;line-height:1;color:var(--phos-hot)}
+.tallyrow.disagree b{color:var(--bleed-r);text-shadow:0 0 14px rgba(255,77,61,.45)}
 
 /* --- the notice --- */
 .notice{
@@ -338,12 +365,14 @@ export interface RoomView {
   renderer: string;
   greeting: string;
   body: string;
-  choices: { id: string; label: string }[];
+  choices: { id: string; label: string; hover?: string }[];
   resolved: Resolved;
   lines: ObservedLine[];
   visitCount: number;
   origin: string;
   shareToken?: string;
+  nudges: string[];
+  lateChairAfterMs: number;
   noticeText?: string;
   artifact?: {
     mark: string;
@@ -382,8 +411,17 @@ function chatRail(lines: ObservedLine[]): string {
 }
 
 export function renderRoom(v: RoomView): string {
-  const chairs = Array.from({ length: v.resolved.chairCount }, (_, i) =>
-    `<div class="chair" style="animation-delay:${0.5 + i * 0.09}s"></div>`).join('');
+  /*
+   * The last chair is held back. It is rendered with the others but hidden,
+   * and arrives a few seconds later under its own animation — so the count
+   * changes WHILE the visitor is looking, before they have clicked anything.
+   */
+  const chairs = Array.from({ length: v.resolved.chairCount }, (_, i) => {
+    const isLate = i === v.resolved.chairCount - 1;
+    return isLate
+      ? `<div class="chair" id="latechair" style="opacity:0;animation:none"></div>`
+      : `<div class="chair" style="animation-delay:${0.5 + i * 0.09}s"></div>`;
+  }).join('');
 
   let main = '';
 
@@ -393,10 +431,12 @@ export function renderRoom(v: RoomView): string {
   } else if (v.renderer === 'counting') {
     main = `
       <div class="objects r d3">${chairs}</div>
-      <p class="lede r d4">The room says there are
-        <b style="color:var(--acid)">${v.resolved.claimedChairCount}</b> chairs.
-        You have counted <b style="color:var(--acid)">${v.resolved.chairCount}</b>.
-        The room is not going to change its mind.</p>`;
+      <div class="tally r d4">
+        <div class="tallyrow"><span>the room says</span><b>${v.resolved.claimedChairCount}</b></div>
+        <div class="tallyrow"><span>you have counted</span><b id="chaircount">${v.resolved.chairCount}</b></div>
+        <div class="tallyrow disagree"><span>difference</span><b>${Math.abs(v.resolved.chairCount - v.resolved.claimedChairCount)}</b></div>
+      </div>
+      <p class="lede r d4">The room is not going to change its mind.</p>`;
   } else if (v.renderer === 'button') {
     main = `
       <div class="r d3">
@@ -438,7 +478,7 @@ export function renderRoom(v: RoomView): string {
 
   const choices = v.choices.length ? `
     <div class="choices r d5">
-      ${v.choices.map((c) => `<button class="choice" data-choice="${esc(c.id)}">
+      ${v.choices.map((c) => `<button class="choice" data-choice="${esc(c.id)}"${c.hover ? ` data-hover="${esc(c.hover)}"` : ''}>
         <span>${esc(c.label)}</span><span class="arrow">&rarr;</span></button>`).join('')}
     </div>` : '';
 
@@ -476,15 +516,19 @@ export function renderRoom(v: RoomView): string {
   </div>
   <h1 class="r d2">${esc(v.greeting)}</h1>
   ${v.body ? `<p class="lede r d2">${esc(v.body)}</p>` : ''}
+  <div class="aside" id="aside"></div>
   ${main}
   ${choices}
 </main></div>
 ${chatRail(v.lines)}
 <script type="module">
+const NUDGES = ${JSON.stringify(v.nudges)};
+const NUDGE_LATE_CHAIR = ${v.lateChairAfterMs};
 const post = (p, b) => fetch(p, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
 
 document.querySelectorAll('[data-choice]').forEach(el => {
   el.addEventListener('click', async () => {
+    acted = true;
     document.body.style.transition = 'opacity .34s'; document.body.style.opacity = '0';
     await post('/bff/choose', { choiceId: el.dataset.choice });
     location.href = '/room';
@@ -554,6 +598,48 @@ if (notice) setInterval(async () => {
     setTimeout(()=>{notice.textContent=r.text;notice.style.opacity='1';}, 400);
   }
 }, 1500);
+
+/*
+ * THE ROOM REACTS. This is the difference between odd and fun.
+ *
+ * Measured before this existed: 78% of arrivals left without a single click.
+ * Nothing on the page responded to anything until you committed to a choice,
+ * so there was no reason to believe anything would.
+ */
+const aside = document.getElementById('aside');
+let acted = false;
+const say = (t) => {
+  if (!aside) return;
+  aside.classList.remove('show');
+  setTimeout(() => { aside.textContent = t; aside.classList.add('show'); }, 260);
+};
+
+// 1. hovering a choice gets an opinion BEFORE you commit to it
+document.querySelectorAll('[data-hover]').forEach((el) => {
+  const line = el.getAttribute('data-hover');
+  const show = () => { if (line) say(line); };
+  el.addEventListener('mouseenter', show);
+  el.addEventListener('focus', show);
+  el.addEventListener('touchstart', show, { passive: true });
+});
+
+// 2. one more chair arrives while you are looking at the room
+const late = document.getElementById('latechair');
+if (late) setTimeout(() => {
+  late.style.opacity = '';
+  late.classList.add('late');
+  const c = document.getElementById('chaircount');
+  if (c) { c.textContent = String(Number(c.textContent || '0') + 1); c.style.color = 'var(--phos-hot)'; }
+}, NUDGE_LATE_CHAIR);
+
+// 3. the room notices you doing nothing, and escalates gently
+let nudgeAt = 0;
+const nudgeTimer = setInterval(() => {
+  if (acted || document.hidden) return;
+  if (nudgeAt >= NUDGES.length) { clearInterval(nudgeTimer); return; }
+  say(NUDGES[nudgeAt++]);
+}, 7400);
+setTimeout(() => { if (!acted && NUDGES.length) say(NUDGES[nudgeAt++]); }, 6200);
 
 // speaking into the room
 const sf = document.getElementById('sayform');

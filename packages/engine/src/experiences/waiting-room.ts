@@ -108,6 +108,47 @@ export const CLOSINGS = [
   'We enjoyed this. We are not certain we are allowed to.',
 ] as const;
 
+/**
+ * THE ROOM NOTICES YOU DOING NOTHING.
+ *
+ * Measured on the live site: 193 arrivals, 42 people who touched anything.
+ * 78% opened the room and left without a single click, and the chat read
+ * "im so confused by what this is". The room was atmospheric and completely
+ * passive — it waited, and so did they, and then they left.
+ *
+ * These fire on a timer while you have not acted. They are the difference
+ * between a room that is odd and a room that is playing with you: an entity
+ * that comments on your hesitation is funny, an entity that just sits there
+ * is furniture. Escalating, never hurrying you, increasingly personal.
+ */
+export const NUDGES = [
+  'You have not moved.',
+  'You have not moved. That is a choice, and it has been recorded as one.',
+  'Take your time. We have taken ours.',
+  'The others usually pick something by now. Not a criticism.',
+  'We can wait. We are extremely good at waiting.',
+  'Would it help if there were fewer options? We can remove one.',
+  'You are the longest arrival today. Congratulations, probably.',
+  'It is fine. Everyone hesitates. Almost everyone.',
+  'We have started a small file on your hesitation. It is not a big file.',
+  'Something will happen whether you choose or not. Probably.',
+] as const;
+
+/** What the room says when you hover a choice without taking it. */
+export const HOVERS: Record<string, string> = {
+  sit:            'That one is still warm.',
+  read:           'Nobody finishes it.',
+  stand:          'Standing is also permitted.',
+  wait:           'You are already doing that.',
+  count:          'Please do. We would like a second opinion.',
+  'keep-reading': 'There is more. There is always more.',
+  'look-away':    'It will still be there.',
+  agree:          'The room appreciates agreement.',
+  disagree:       'You are allowed to. It changes nothing.',
+  press:          'Oh.',
+  refuse:         'A popular decision.',
+};
+
 /* ------------------------------------------------------------------ */
 /* Scene graph                                                         */
 /* ------------------------------------------------------------------ */
@@ -125,10 +166,20 @@ export interface SceneDef {
 }
 
 export const SCENES: SceneDef[] = [
+  /*
+   * ARRIVAL OFFERS THE JOKE DIRECTLY.
+   *
+   * Measured: counting was reached by 7.8% of sessions and the button by
+   * 21.8%, because both sat two or three clicks behind atmosphere. The chair
+   * miscount is the strongest thing in the room and almost nobody met it.
+   * "Count the chairs" is now on the first screen, one click from the
+   * contradiction.
+   */
   {
     id: 'arrival',
     renderer: 'room',
     choices: [
+      { id: 'count', label: 'Count the chairs', next: 'counting' },
       { id: 'sit', label: 'Sit down', next: 'seated' },
       { id: 'read', label: 'Read the notice', next: 'notice' },
       { id: 'stand', label: 'Remain standing', next: 'standing' },
@@ -187,6 +238,15 @@ export function sceneById(id: string): SceneDef | undefined {
 /* Resolution — pure, seed-driven                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * ONE CHAIR ARRIVES LATE.
+ *
+ * The chair miscount is the best joke in the room and it was buried three
+ * clicks deep — only 7.8% of visitors ever reached the counting scene. Now a
+ * chair fades in a few seconds after arrival, while you are looking at the
+ * screen and before you have clicked anything, and the eyebrow quietly
+ * updates its count. The joke that 7.8% saw is now the joke 100% see.
+ */
 export interface Resolved {
   greeting: string;
   anomaly: (typeof ANOMALIES)[number];
@@ -197,6 +257,8 @@ export interface Resolved {
   nonPress: string;
   closing: string;
   notPressedCount: number;
+  /** Milliseconds after arrival before one more chair quietly appears. */
+  lateChairAfterMs: number;
 }
 
 /**
@@ -221,6 +283,9 @@ export function resolveRoom(seed: string, visitCount: number): Resolved {
     closing: r.pick(CLOSINGS),
     // A large, stable, faintly absurd number. Increments when you press.
     notPressedCount: 1200 + r.int(0, 800),
+    // Long enough that you have settled, short enough that you are still
+    // looking. Under ~3s it reads as a loading artifact rather than an event.
+    lateChairAfterMs: 3400 + r.int(0, 2600),
   };
 }
 

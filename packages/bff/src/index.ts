@@ -19,7 +19,7 @@ import { Repo } from '../../engine/src/repo.ts';
 import { Nedb } from '../../engine/src/nedb.ts';
 import {
   DEFINITION, EXPERIENCE_ID, INITIAL_SCENE, SCENES, sceneById,
-  resolveRoom, noticeFor,
+  resolveRoom, noticeFor, NUDGES, HOVERS,
 } from '../../engine/src/experiences/waiting-room.ts';
 import { renderRoom, renderArtifact } from './render.ts';
 import { CONFIG, banner, type ImagineStatus } from './config.ts';
@@ -272,12 +272,14 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     renderer: scene.renderer,
     greeting: scene.id === 'arrival' ? resolved.greeting : titleFor(scene.id, resolved),
     body: BODIES[scene.id] ?? '',
-    choices: scene.choices.map((c) => ({ id: c.id, label: c.label })),
+    choices: scene.choices.map((c) => ({ id: c.id, label: c.label, hover: HOVERS[c.id] })),
     resolved,
     lines,
     visitCount: v?.visitCount ?? 0,
     origin: CONFIG.origin,
     shareToken,
+    nudges: [...NUDGES],
+    lateChairAfterMs: resolved.lateChairAfterMs,
     noticeText: noticeFor(dwellMs),
     artifact,
   });
