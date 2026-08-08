@@ -131,11 +131,8 @@ export class Repo {
     const clean = email.trim().toLowerCase();
     const existing = await this.db.rows(`FROM subscribers WHERE ${eq('email', clean)}`);
     if (existing.length) return { created: false };   // idempotent, never errors at them
-    await this.db.insert('subscribers', {
-      _id: `sub:${createHash('sha256').update(clean).digest('hex').slice(0, 24)}`,
-      email: clean,
-      tick: currentTick(),
-    });
+    const id = `sub:${createHash('sha256').update(clean).digest('hex').slice(0, 24)}`;
+    await this.db.put('subscribers', id, { email: clean, tick: currentTick() });
     return { created: true };
   }
 

@@ -533,9 +533,15 @@ const server = createServer(async (req, res) => {
 
       try {
         await repo.addSubscriber(raw);
-      } catch {
-        // Never tell somebody their signup failed. It is queued or it is not;
-        // either way the room does not show them an error about plumbing.
+      } catch (err) {
+        /*
+         * The visitor still never sees a plumbing error — but this MUST be
+         * logged. The first version swallowed it silently and the endpoint
+         * cheerfully returned ok:true while storing nothing at all, which is
+         * the worst possible failure for the one thing the business depends
+         * on: a signup form that looks like it works and drops every lead.
+         */
+        console.error('[subscribe] FAILED TO STORE', (err as Error).message);
       }
       // Same reply whether or not they were already on the list — otherwise
       // the form becomes a way to test whether an address is subscribed.

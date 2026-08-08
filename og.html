@@ -1,0 +1,53 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=VT323&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--phos:#ffb03a;--phos-hot:#ffd08a;--phos-dim:#8a5f2a;--line:#3a2a14;--bleed-r:#ff4d3d}
+  html,body{margin:0;padding:0;background:#000}
+  .card{width:1200px;height:630px;position:relative;overflow:hidden;background:#0b0704}
+  body{color:var(--phos);font-family:'IBM Plex Mono',monospace}
+  /* scanlines + vignette, same as the room */
+    .card::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:5;
+    background:repeating-linear-gradient(to bottom,rgba(0,0,0,.22) 0 1px,transparent 1px 3px)}
+    .card::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:6;
+    background:radial-gradient(ellipse at center,transparent 42%,rgba(0,0,0,.72) 100%)}
+  .wrap{position:absolute;inset:0;padding:62px 70px;display:flex;flex-direction:column;justify-content:space-between}
+  .top{display:flex;justify-content:space-between;align-items:flex-start}
+  .kicker{font-size:15px;letter-spacing:.34em;text-transform:uppercase;color:var(--phos-dim)}
+  h1{font-family:'VT323',monospace;font-size:132px;line-height:.84;letter-spacing:.04em;
+     color:var(--phos-hot);text-shadow:2px 0 0 rgba(255,77,61,.5),-2px 0 0 rgba(61,166,255,.32),0 0 42px rgba(255,176,58,.42)}
+  .tag{font-size:27px;line-height:1.42;color:var(--phos);max-width:20ch;margin-top:26px}
+  .tag b{color:var(--phos-hot);font-weight:500}
+  .mid{display:flex;align-items:flex-end;gap:54px}
+  .chairs{display:flex;gap:16px;align-items:flex-end}
+  .chair{width:46px;height:60px;border:1px solid var(--phos-dim);border-bottom-width:3px;position:relative}
+  .chair::after{content:"";position:absolute;left:7px;right:7px;top:16px;height:1px;background:var(--phos-dim)}
+  .chair.ghost{border-color:var(--bleed-r);box-shadow:0 0 22px rgba(255,77,61,.4)}
+  .chair.ghost::after{background:var(--bleed-r)}
+  .claim{font-family:'VT323',monospace;font-size:40px;line-height:1.06;color:var(--phos-dim)}
+  .claim .no{color:var(--bleed-r);text-shadow:0 0 20px rgba(255,77,61,.5)}
+  .bot{display:flex;justify-content:space-between;align-items:flex-end;
+       border-top:1px solid var(--line);padding-top:20px}
+  .url{font-family:'VT323',monospace;font-size:38px;color:var(--phos-hot);letter-spacing:.05em}
+  .meta{font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:var(--phos-dim);text-align:right;line-height:1.85}
+</style></head><body><div class="card"><div class="wrap">
+  <div class="top">
+    <div>
+      <div class="kicker">This is not a preview</div>
+      <h1>SHOCKME</h1>
+      <p class="tag">You didn't find the <b>same website</b> they did.</p>
+    </div>
+    <div class="meta">12 rooms<br>one of them is counting<br>none of you agree</div>
+  </div>
+  <div class="mid">
+    <div class="chairs">
+      <div class="chair"></div><div class="chair"></div><div class="chair"></div>
+      <div class="chair"></div><div class="chair ghost"></div>
+    </div>
+    <div class="claim">the room insisted on 4 chairs.<br><span class="no">it drew 5.</span></div>
+  </div>
+  <div class="bot">
+    <div class="url">thrilling.world</div>
+    <div class="meta">every visit is a different room</div>
+  </div>
+</div></div></body></html>
