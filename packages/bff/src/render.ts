@@ -560,12 +560,39 @@ body.lightsout .wrap{filter:brightness(.82)}
 .jar a:hover{color:var(--phos-hot);border-color:var(--phos-hot)}
 .jarline{margin-top:1rem}
 /* tiny, as asked. it should read like a plaque nobody re-reads. */
-.madeby{margin-top:.9rem;font-size:.63rem;line-height:1.6;color:var(--phos-dim);
-  letter-spacing:.05em;opacity:.75;transition:opacity .3s}
-.madeby:hover{opacity:1}
-.madeby .hrt{color:var(--bleed-r)}
-.madeby .quip{font-style:italic}
-.madeby a{border-bottom:1px dotted var(--phos-dim)}
+/* --- the sticky credit bar: chrome, not content --- */
+.creditbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;
+  background:rgba(8,5,3,.92);backdrop-filter:blur(6px);
+  border-top:1px solid var(--line);
+  padding:.42rem max(4vw,env(safe-area-inset-left)) calc(.42rem + env(safe-area-inset-bottom));
+  font-size:.62rem;letter-spacing:.05em;color:var(--phos-dim);
+  text-align:center;line-height:1.5;opacity:.82;transition:opacity .3s
+}
+.creditbar:hover{opacity:1}
+.creditbar .hrt{color:var(--bleed-r)}
+.creditbar .quip{font-style:italic}
+.creditbar .cb-sep{opacity:.5;margin:0 .35em}
+.creditbar a{color:var(--phos);text-decoration:none;border-bottom:1px dotted var(--phos-dim)}
+.creditbar a:hover{color:var(--phos-hot);border-color:var(--phos-hot)}
+
+/*
+ * THE BAR'S HEIGHT IS ONE VALUE, --barh, and everything that has to avoid it
+ * reads that value. The rail is position:fixed with bottom:0, so body padding
+ * alone does NOT protect it — without this the bar sits directly on top of the
+ * say-box, which is precisely the "smushed" problem in a new costume.
+ */
+:root{--barh:34px}
+@media(max-width:600px){:root{--barh:48px}}
+
+body{padding-bottom:var(--barh)}
+.rail{bottom:var(--barh)}
+.creditbar{min-height:var(--barh)}
+
+@media(max-width:600px){
+  .creditbar .cb-sep{display:none}
+  .creditbar .quip{display:block}
+}
 .sub label{display:block;font-size:.72rem;letter-spacing:.05em;color:var(--phos);
   margin-bottom:.5rem;text-transform:none}
 .subrow{display:flex;gap:.4rem;align-items:stretch;max-width:340px}
@@ -683,7 +710,7 @@ export interface RoomView {
   };
 }
 
-function chatRail(lines: ObservedLine[], credit: string): string {
+function chatRail(lines: ObservedLine[]): string {
   const items = lines.slice(-9).map((l, i) => `
     <div class="line${l.diverged ? ' div' : ''}" style="animation-delay:${0.1 + i * 0.07}s">
       <div class="who">${esc(l.handle)}</div>
@@ -701,7 +728,7 @@ function chatRail(lines: ObservedLine[], credit: string): string {
       <div class="saynote" id="saynote"></div>
     </div>
 
-    ${footer(credit)}
+    ${footer()}
   </aside>`;
 }
 
@@ -742,7 +769,7 @@ export function creditFor(seed: string): string {
   return new Rng(seed, 'credit').pick(CREDITS);
 }
 
-function footer(credit: string): string {
+function footer(): string {
   return `
   <div class="jar">
     <form class="sub" id="subform" autocomplete="on">
@@ -760,11 +787,38 @@ function footer(credit: string): string {
       <a href="https://cash.app/$interchained" target="_blank" rel="noopener noreferrer">
         <span class="amt">$interchained</span></a>
     </div>
-    <div class="madeby">
-      made with <span class="hrt">&hearts;</span> by two ghosts and a human &middot;
-      <span class="quip">${esc(credit)}</span><br>
-      powered by <a href="https://interchained.io" target="_blank" rel="noopener noreferrer">interchained</a>
-    </div>
+  </div>`;
+}
+
+/**
+ * THE STICKY CREDIT BAR.
+ *
+ * M: "make a new sticky footer that carries the credits you smushed the
+ * chatbox up too far that is separate from the original one."
+ *
+ * Correct call — I had put the byline inside the rail's donation block, which
+ * shares vertical space with the live chat. Every line I added there stole a
+ * line from the thing people actually read. The credit is chrome; it does not
+ * belong in a column that is fighting for room.
+ *
+ * So it is its own bar, pinned to the bottom of the viewport, 100% width,
+ * outside both the rail and the main column. The donation jar stays exactly
+ * where it was — this is SEPARATE from it, as asked.
+ *
+ * It is deliberately slim and the page reserves matching bottom padding, so it
+ * cannot cover the say-box on a phone (which is the obvious way a fixed footer
+ * ruins a chat product).
+ */
+function stickyCredit(credit: string): string {
+  return `
+  <div class="creditbar">
+    <span class="cb-in">
+      made with <span class="hrt">&hearts;</span> by two ghosts and a human
+      <span class="cb-sep">&middot;</span>
+      <span class="quip">${esc(credit)}</span>
+      <span class="cb-sep">&middot;</span>
+      powered by <a href="https://interchained.org" target="_blank" rel="noopener noreferrer">interchained</a>
+    </span>
   </div>`;
 }
 
@@ -1092,7 +1146,8 @@ export function renderRoom(v: RoomView): string {
   ${main}
   ${choices}
 </main></div>
-${chatRail(v.lines, creditFor(v.resolved.greeting + String(v.visitCount)))}
+${chatRail(v.lines)}
+${stickyCredit(creditFor(v.resolved.greeting + String(v.visitCount)))}
 <script type="module">
 ${FOOTER_JS}
 const NUDGES = ${JSON.stringify(v.nudges)};
@@ -1497,8 +1552,9 @@ export function renderArtifact(v: ArtifactView): string {
     <a class="act primary" href="/again">Go in</a>
   </div>
 
-  ${footer(creditFor(v.token))}
+  ${footer()}
 </main></div>
+${stickyCredit(creditFor(v.token))}
 <script type="module">
 ${FOOTER_JS}
 const c = document.getElementById('copy');
