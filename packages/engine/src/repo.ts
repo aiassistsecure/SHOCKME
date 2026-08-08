@@ -11,6 +11,7 @@
  * a visitor, truthfully, that their history has not been altered.
  */
 
+import { createHash } from 'node:crypto';
 import { Nedb, eq, lit, type Hash, type NedbRow, type Seq } from './nedb.ts';
 import { Rng, mintSeed, mintToken, deriveReplaySeed } from './rng.ts';
 import { currentTick, WORLD_SEED } from './world.ts';
@@ -18,6 +19,8 @@ import { currentTick, WORLD_SEED } from './world.ts';
 export const COLLECTIONS = [
   'visitors', 'sessions', 'experiences', 'scenes', 'events',
   'encounters', 'artifacts', 'broadcasts', 'experience_versions',
+  // Opt-in only, and deliberately not joined to any of the above.
+  'subscribers',
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -106,6 +109,41 @@ export class Repo {
    * Anonymous. No name, no email, no fingerprint — just an opaque id the
    * visitor holds in a cookie they can burn at any time.
    */
+  /* ------------------------------------------------------------------ */
+  /* Subscribers                                                         */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * THE ONLY PII IN THE SYSTEM, AND IT IS OPT-IN.
+   *
+   * Everything else here is deliberately anonymous — no IP, no user agent, no
+   * fingerprint. An email is different in kind, so it is treated differently:
+   * it lives in its own collection, it is only ever written because somebody
+   * typed it into a form and pressed a button, and it is NOT joined to that
+   * person's behavioural history anywhere in the product. The back room shows
+   * the address and when it arrived, and nothing else.
+   *
+   * Storing the sessionId would make "which rooms did this lead see" trivial
+   * and is exactly the kind of quiet linkage the rest of this codebase refuses
+   * to do, so it is not stored.
+   */
+  async addSubscriber(email: string): Promise<{ created: boolean }> {
+    const clean = email.trim().toLowerCase();
+    const existing = await this.db.rows(`FROM subscribers WHERE ${eq('email', clean)}`);
+    if (existing.length) return { created: false };   // idempotent, never errors at them
+    await this.db.insert('subscribers', {
+      _id: `sub:${createHash('sha256').update(clean).digest('hex').slice(0, 24)}`,
+      email: clean,
+      tick: currentTick(),
+    });
+    return { created: true };
+  }
+
+  async subscribers(): Promise<{ email: string; tick: number }[]> {
+    const rows = await this.db.rows('FROM subscribers ORDER BY tick');
+    return rows.map((r) => ({ email: String(r.email ?? ''), tick: Number(r.tick ?? 0) }));
+  }
+
   async createVisitor(): Promise<Visitor> {
     const v: Visitor = { visitorId: id('v'), firstSeenTick: currentTick(), visitCount: 0 };
     await this.db.put('visitors', v.visitorId, { ...v });

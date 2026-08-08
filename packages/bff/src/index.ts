@@ -517,6 +517,31 @@ const server = createServer(async (req, res) => {
       return json(res, { ok: true, sceneId: choice.next });
     }
 
+    /* ---- the only thing we ever ask for ---- */
+    if (path === '/bff/subscribe' && req.method === 'POST') {
+      const raw = String((await body(req)).email ?? '').trim();
+
+      /*
+       * Validated, not verified. A regex cannot tell you an address is real,
+       * so this only rejects what is obviously not an address and lets the
+       * rest through — bouncing a legitimate lead to satisfy a clever pattern
+       * is the more expensive mistake.
+       */
+      const ok = raw.length >= 6 && raw.length <= 200 &&
+        /^[^\s@]+@[^\s@.]+\.[^\s@]{2,}$/.test(raw) && !/[\r\n,;<>]/.test(raw);
+      if (!ok) return json(res, { ok: false, message: 'That is not an address the room can reach.' }, 400);
+
+      try {
+        await repo.addSubscriber(raw);
+      } catch {
+        // Never tell somebody their signup failed. It is queued or it is not;
+        // either way the room does not show them an error about plumbing.
+      }
+      // Same reply whether or not they were already on the list — otherwise
+      // the form becomes a way to test whether an address is subscribed.
+      return json(res, { ok: true, message: 'Thank you. You will hear from the room.' });
+    }
+
     /* ---- you commit to a number ---- */
     if (path === '/bff/count' && req.method === 'POST') {
       const ctx = await resolveCtx(req);

@@ -384,6 +384,23 @@ body.lightsout .wrap{filter:brightness(.82)}
 .jar a{color:var(--phos);text-decoration:none;border-bottom:1px dotted var(--phos-dim);
   transition:color .25s,border-color .25s}
 .jar a:hover{color:var(--phos-hot);border-color:var(--phos-hot)}
+.jarline{margin-top:1rem}
+.sub label{display:block;font-size:.72rem;letter-spacing:.05em;color:var(--phos);
+  margin-bottom:.5rem;text-transform:none}
+.subrow{display:flex;gap:.4rem;align-items:stretch;max-width:340px}
+#subemail{flex:1 1 auto;min-width:0;background:transparent;border:1px solid var(--line);
+  color:var(--phos-hot);font:inherit;font-size:.82rem;padding:.5rem .6rem;outline:none;
+  transition:border-color .2s}
+#subemail::placeholder{color:var(--phos-dim)}
+#subemail:focus{border-color:var(--phos)}
+#subemail:disabled{opacity:.5}
+#subgo{flex:0 0 auto;background:transparent;border:1px solid var(--line);color:var(--phos);
+  font:inherit;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;
+  padding:.5rem .8rem;cursor:pointer;transition:background .18s,color .18s,border-color .18s}
+#subgo:hover:not(:disabled){background:var(--phos);color:#120b04;border-color:var(--phos)}
+#subgo:disabled{color:var(--phos-dim);cursor:default}
+.subnote{margin-top:.45rem;font-size:.68rem;color:var(--phos-dim);line-height:1.45;
+  min-height:1.4em;max-width:340px}
 .jar .amt{font-family:var(--crt);font-size:1.15rem;letter-spacing:.06em}
 
 /* ============================================================
@@ -494,13 +511,74 @@ function chatRail(lines: ObservedLine[]): string {
       <div class="saynote" id="saynote"></div>
     </div>
 
-    <div class="jar">
+    ${footer()}
+  </aside>`;
+}
+
+
+/**
+ * THE FOOTER, INCLUDING THE ONLY ASK IN THE PRODUCT.
+ *
+ * One function, used by every page, because the last time a number lived in
+ * two places it drifted within the hour.
+ *
+ * The email sits in the FOOTER, not in the doorway and not in front of the
+ * artifact. Nothing is gated behind it — you can play the whole thing, get
+ * your artifact and share it having never seen this field do anything. That
+ * is the business model M set: free product, lead generation, and the ask
+ * never blocks the thing people came for.
+ *
+ * It is written in the room's voice rather than a marketing voice, because a
+ * "Join our newsletter!" module would be the one honest-to-god lie on the
+ * page — the only moment SHOCKME stopped being a room and became a funnel.
+ */
+function footer(): string {
+  return `
+  <div class="jar">
+    <form class="sub" id="subform" autocomplete="on">
+      <label for="subemail">The room would like to write to you.</label>
+      <div class="subrow">
+        <input id="subemail" name="email" type="email" inputmode="email"
+               autocomplete="email" placeholder="you@somewhere" maxlength="200"
+               aria-label="your email address">
+        <button type="submit" id="subgo">Subscribe</button>
+      </div>
+      <div class="subnote" id="subnote">It will not write often. It is not organised.</div>
+    </form>
+    <div class="jarline">
       this runs on a machine somebody pays for.<br>
       <a href="https://cash.app/$interchained" target="_blank" rel="noopener noreferrer">
         <span class="amt">$interchained</span></a>
     </div>
-  </aside>`;
+  </div>`;
 }
+
+/** Wired once, works on every page that includes footer(). */
+const FOOTER_JS = `
+const sub = document.getElementById('subform');
+if (sub) sub.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('subemail');
+  const note = document.getElementById('subnote');
+  const btn = document.getElementById('subgo');
+  const email = (input.value || '').trim();
+  if (!email) return;
+  btn.disabled = true;
+  try {
+    const r = await fetch('/bff/subscribe', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const d = await r.json();
+    note.textContent = d.message || 'Thank you.';
+    if (d.ok) { input.value = ''; input.disabled = true; btn.textContent = 'Noted'; }
+    else btn.disabled = false;
+  } catch (_) {
+    note.textContent = 'That did not reach the room. It may have reached something else.';
+    btn.disabled = false;
+  }
+});
+`;
 
 export function renderRoom(v: RoomView): string {
   /*
@@ -723,6 +801,7 @@ export function renderRoom(v: RoomView): string {
 </main></div>
 ${chatRail(v.lines)}
 <script type="module">
+${FOOTER_JS}
 const NUDGES = ${JSON.stringify(v.nudges)};
 if (document.getElementById('darkroom')) document.body.classList.add('lightsout');
 const NUDGE_LATE_CHAIR = ${v.lateChairAfterMs};
@@ -1062,13 +1141,10 @@ export function renderArtifact(v: ArtifactView): string {
     <a class="act primary" href="/">Go in</a>
   </div>
 
-  <div class="jar r d6" style="margin-top:3rem;border-top:1px solid var(--line);padding-top:1.2rem">
-    this runs on a machine somebody pays for.<br>
-    <a href="https://cash.app/$interchained" target="_blank" rel="noopener noreferrer">
-      <span class="amt">$interchained</span></a>
-  </div>
+  ${footer()}
 </main></div>
 <script type="module">
+${FOOTER_JS}
 const c = document.getElementById('copy');
 c?.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(${JSON.stringify(url)});

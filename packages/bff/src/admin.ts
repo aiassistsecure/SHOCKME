@@ -58,6 +58,8 @@ export interface Stats {
   live: { tick: number; population: number; connections: number };
   spokenPerSession: number;
   drawings: { total: number; blank: number; avgMs: number; subjects: { subject: string; n: number }[] };
+  /** Opt-in only, and deliberately NOT joined to behaviour. Address + when. */
+  subs: { email: string; tick: number }[];
 }
 
 const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 1000) / 10);
@@ -73,12 +75,13 @@ function quantile(sorted: number[], q: number): number {
  * tracked — so the numbers cannot drift away from what actually happened.
  */
 export async function gather(repo: Repo, connections: number): Promise<Stats> {
-  const [visitors, sessions, events, artifacts, verify] = await Promise.all([
+  const [visitors, sessions, events, artifacts, verify, subs] = await Promise.all([
     repo.db.rows('FROM visitors'),
     repo.db.rows('FROM sessions'),
     repo.db.rows('FROM events ORDER BY tick'),
     repo.db.rows('FROM artifacts'),
     repo.db.verify(),
+    repo.subscribers(),
   ]);
 
   const evOf = (kind: string) => events.filter((e) => e.kind === kind);
@@ -154,6 +157,7 @@ export async function gather(repo: Repo, connections: number): Promise<Stats> {
       tampered: verify.tampered?.length ?? 0,
     },
     live: { tick: currentTick(), population: populationAt(currentTick()), connections },
+    subs: subs.slice(-100).reverse(),
     spokenPerSession: sessions.length ? Math.round((evOf('said').length / sessions.length) * 100) / 100 : 0,
     drawings: (() => {
       const d = evOf('drawn');
@@ -297,6 +301,20 @@ ${s.said.length ? s.said.map((u) => `<tr><td class="sid">${esc(ago(u.tick))}</td
 <div class="note">This is the moderation view. Everything here already passed
 screening; anything that should not have is a gap in the blocklist — add it to
 <b>SHOCKME_BLOCKLIST</b> and restart.</div>
+
+<h2>The list</h2>
+${row('subscribers', s.subs.length)}
+${row('of finishers', `${pct(s.subs.length, s.completed)}%`, 'the only conversion number that matters')}
+<table>
+<tr><th>address</th><th class="num">when</th></tr>
+${s.subs.length ? s.subs.map((u) => `<tr><td>${esc(u.email)}</td><td class="num sid">${esc(ago(u.tick))}</td></tr>`).join('')
+  : '<tr><td colspan="2" class="sid">nobody has subscribed yet</td></tr>'}
+</table>
+<div class="note">This is the ONLY personally identifying data the product
+holds, it is opt-in, and it is deliberately <b>not joined to behaviour</b> —
+the subscribers collection stores an address and a timestamp, nothing else.
+Linking a lead to the rooms they walked through would be trivial and is
+exactly the quiet linkage the rest of this system refuses to do.</div>
 
 <h2>The room's drawings</h2>
 ${row('attempts', s.drawings.total)}
