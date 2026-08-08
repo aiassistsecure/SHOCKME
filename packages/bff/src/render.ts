@@ -412,16 +412,29 @@ function chatRail(lines: ObservedLine[]): string {
 
 export function renderRoom(v: RoomView): string {
   /*
-   * The last chair is held back. It is rendered with the others but hidden,
-   * and arrives a few seconds later under its own animation — so the count
-   * changes WHILE the visitor is looking, before they have clicked anything.
+   * THE COUNT HAS EXACTLY ONE SOURCE OF TRUTH.
+   *
+   * chairCount is the number of chairs that WILL be on screen once the late
+   * one lands. The last chair is held back so the count visibly changes while
+   * the visitor watches, but it is one OF that total, never an extra.
+   *
+   * The bug this replaces: the tally printed chairCount immediately (while
+   * only chairCount-1 were visible), and then the client did
+   * `count = Number(text) + 1`, landing on chairCount+1. So the room drew 4,
+   * claimed 4, then announced 5 — and the artifact said something different
+   * again. Three copies of one number, none of them agreeing. M caught it:
+   * "it drew 5. but we both know it drew 4."
+   *
+   * Now the server sends both exact values and the client only ever ASSIGNS
+   * them. No arithmetic in the browser means no third opinion.
    */
-  const chairs = Array.from({ length: v.resolved.chairCount }, (_, i) => {
-    const isLate = i === v.resolved.chairCount - 1;
-    return isLate
+  const finalChairs = v.resolved.chairCount;
+  const chairsBefore = Math.max(1, finalChairs - 1);   // one is held back
+  const chairs = Array.from({ length: finalChairs }, (_, i) =>
+    i === finalChairs - 1
       ? `<div class="chair" id="latechair" style="opacity:0;animation:none"></div>`
-      : `<div class="chair" style="animation-delay:${0.5 + i * 0.09}s"></div>`;
-  }).join('');
+      : `<div class="chair" style="animation-delay:${0.5 + i * 0.09}s"></div>`,
+  ).join('');
 
   let main = '';
 
@@ -433,8 +446,8 @@ export function renderRoom(v: RoomView): string {
       <div class="objects r d3">${chairs}</div>
       <div class="tally r d4">
         <div class="tallyrow"><span>the room says</span><b>${v.resolved.claimedChairCount}</b></div>
-        <div class="tallyrow"><span>you have counted</span><b id="chaircount">${v.resolved.chairCount}</b></div>
-        <div class="tallyrow disagree"><span>difference</span><b>${Math.abs(v.resolved.chairCount - v.resolved.claimedChairCount)}</b></div>
+        <div class="tallyrow"><span>you have counted</span><b id="chaircount">${chairsBefore}</b></div>
+        <div class="tallyrow disagree"><span>difference</span><b id="chairdiff">${Math.abs(chairsBefore - v.resolved.claimedChairCount)}</b></div>
       </div>
       <p class="lede r d4">The room is not going to change its mind.</p>`;
   } else if (v.renderer === 'button') {
@@ -524,6 +537,8 @@ ${chatRail(v.lines)}
 <script type="module">
 const NUDGES = ${JSON.stringify(v.nudges)};
 const NUDGE_LATE_CHAIR = ${v.lateChairAfterMs};
+const CHAIRS_FINAL = ${finalChairs};
+const CHAIRS_DIFF = ${Math.abs(finalChairs - v.resolved.claimedChairCount)};
 const post = (p, b) => fetch(p, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
 
 document.querySelectorAll('[data-choice]').forEach(el => {
@@ -628,8 +643,12 @@ const late = document.getElementById('latechair');
 if (late) setTimeout(() => {
   late.style.opacity = '';
   late.classList.add('late');
+  // ASSIGN the server's exact numbers. Never Number(text)+1 — that produced
+  // a third, wrong count that disagreed with both the drawing and the artifact.
   const c = document.getElementById('chaircount');
-  if (c) { c.textContent = String(Number(c.textContent || '0') + 1); c.style.color = 'var(--phos-hot)'; }
+  if (c) { c.textContent = String(CHAIRS_FINAL); c.style.color = 'var(--phos-hot)'; }
+  const df = document.getElementById('chairdiff');
+  if (df) df.textContent = String(CHAIRS_DIFF);
 }, NUDGE_LATE_CHAIR);
 
 // 3. the room notices you doing nothing, and escalates gently

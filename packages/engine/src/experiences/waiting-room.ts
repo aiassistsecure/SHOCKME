@@ -269,9 +269,17 @@ export function resolveRoom(seed: string, visitCount: number): Resolved {
   const r = new Rng(seed, 'room');
   const anomaly = r.pick(ANOMALIES);
 
-  // The room draws N chairs but claims four. It is never wrong on purpose.
+  /*
+   * The room draws N chairs and claims four. It is never wrong on purpose.
+   *
+   * FOUR IS NOT IN THE POOL. It used to be, weighted highest, so about one
+   * visitor in ten met a room that was simply correct — and for them the
+   * strongest joke in the experience silently did not happen. The artifact
+   * read "the room insisted on 4 chairs. it drew 4." which is just a sentence.
+   * The room is now always, confidently, wrong.
+   */
   const claimed = 4;
-  const drawn = r.weighted([[4, 3], [5, 4], [3, 2], [6, 1]] as const);
+  const drawn = r.weighted([[5, 4], [3, 3], [6, 2], [2, 1], [7, 1]] as const);
 
   return {
     greeting: visitCount > 0 && r.bool(0.7) ? 'You came back.' : r.pick(GREETINGS),
