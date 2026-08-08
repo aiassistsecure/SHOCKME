@@ -271,6 +271,9 @@ body.hum::after{animation-duration:9s}
 .asknote{margin-top:.6rem;font-size:.72rem;color:var(--phos-dim);line-height:1.5}
 .asknote.done{color:var(--phos-hot)}
 /* the echo is ordinary prose, one shade warmer. nothing announces it. */
+.afterimage{margin:0 0 1.9rem;padding-left:1rem;border-left:1px solid var(--phos-dim);
+  font-size:1.02rem;line-height:1.55;color:#c9a978;max-width:40ch;font-style:italic;
+  opacity:0;animation:fadeup 1.1s .55s both}
 .lede.echo{color:var(--phos);border-left:1px solid var(--line);padding-left:1rem}
 
 /*
@@ -700,6 +703,8 @@ export interface RoomView {
   officeLines?: readonly string[];
   /** A line that could only exist because of an earlier choice. */
   echo?: string;
+  /** How you arrived, or who you have been. At most one per run. */
+  afterimage?: string;
   artifact?: {
     mark: string;
     title: string;
@@ -893,6 +898,15 @@ export function renderRoom(v: RoomView): string {
    */
   const echoHtml = v.echo
     ? `<p class="lede echo r d4">${esc(v.echo)}</p>`
+    : '';
+
+  /*
+   * The afterimage is quieter than a sting on purpose. A sting is about what
+   * you are doing right now; this is about who you have been, and that only
+   * works if it is almost inaudible.
+   */
+  const afterHtml = v.afterimage
+    ? `<p class="afterimage r d3">${esc(v.afterimage)}</p>`
     : '';
 
   let main = '';
@@ -1100,7 +1114,7 @@ export function renderRoom(v: RoomView): string {
     main = `<div class="objects r d3">${chairs}</div>`;
   }
 
-  main += echoHtml + stingHtml;
+  main = afterHtml + main + echoHtml + stingHtml;
 
   const choices = v.choices.length ? `
     <div class="choices r d5">

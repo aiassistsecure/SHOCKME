@@ -16,7 +16,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Repo } from '../../engine/src/repo.ts';
-import { Nedb } from '../../engine/src/nedb.ts';
+import { Nedb, eq } from '../../engine/src/nedb.ts';
 import {
   DEFINITION, EXPERIENCE_ID, INITIAL_SCENE, SCENES, sceneById,
   resolveRoom, noticeFor, NUDGES, HOVERS,
@@ -34,6 +34,10 @@ import { draw, subjectFor, type Drawing } from '../../engine/src/drawing.ts';
 import { stingFor, MAX_STINGS } from '../../engine/src/experiences/sting.ts';
 import { echoFor, recognitionFor } from '../../engine/src/experiences/consequence.ts';
 import { planFor, sceneIn, OFFICE_LINES, type Floorplan } from '../../engine/src/experiences/floorplan.ts';
+import {
+  classifyReferrer, arrivalBeat, deriveAfterimage, afterimageBeat,
+  type ReferrerClass,
+} from '../../engine/src/afterimage.ts';
 import {
   readAnswer, ANSWER_MIN, ANSWER_MAX, ANSWER_PROMPT, ANSWER_PLACEHOLDER,
 } from '../../engine/src/experiences/answer.ts';
@@ -176,11 +180,16 @@ const json = (res: ServerResponse, data: unknown, status = 200) => {
 
 /* ---------------- session resolution ---------------- */
 
-interface Ctx { visitorId: string; sessionId: string; setCookies: string[] }
+interface Ctx { visitorId: string; sessionId: string; setCookies: string[]; referrerClass: ReferrerClass }
 
 async function resolveCtx(req: IncomingMessage): Promise<Ctx> {
   const c = readCookies(req);
   const setCookies: string[] = [];
+
+  const referrerClass = classifyReferrer(
+    req.headers.referer,
+    new URL(CONFIG.origin).hostname,
+  );
 
   let visitorId = c.sm_v ?? '';
   let visitor = visitorId ? await repo.getVisitor(visitorId) : null;
@@ -197,7 +206,21 @@ async function resolveCtx(req: IncomingMessage): Promise<Ctx> {
     sessionId = s.sessionId;
     setCookies.push(cookie('sm_s', sessionId));
   }
-  return { visitorId, sessionId, setCookies };
+  /*
+   * THE CLASS IS STORED. THE REFERRER IS NOT.
+   *
+   * A full referring URL can carry a username, a search query or a private
+   * group id. classifyReferrer() reduces it to one of nine enum values and
+   * the original string is never written anywhere — not to the log, not to a
+   * cookie, not to the admin panel.
+   */
+  if (!existing && referrerClass !== 'direct' && referrerClass !== 'internal') {
+    try {
+      await repo.appendExperienceEvent(sessionId, 'arrived', { referrerClass });
+    } catch { /* an arrival we could not record is not worth failing a page for */ }
+  }
+
+  return { visitorId, sessionId, setCookies, referrerClass };
 }
 
 /* ---------------- the room ---------------- */
@@ -329,6 +352,23 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
   let sting: string | undefined;
   let echo: string | undefined;
   let recognition: string | undefined;
+  let afterimage: string | undefined;
+
+  /*
+   * THE ARRIVAL BEAT fires on the FIRST screen, before there is any behaviour
+   * to comment on, and only when we genuinely observed a referrer. Direct and
+   * unknown arrivals get nothing — the room does not guess where you were.
+   */
+  if (scene.id === INITIAL_SCENE) {
+    const ev0 = await repo.eventsFor(ctx.sessionId);
+    if (!ev0.some((e) => e.kind === 'arrival_beat')) {
+      const ab = arrivalBeat(s.seed, ctx.referrerClass);
+      if (ab) {
+        afterimage = ab;
+        await repo.appendExperienceEvent(ctx.sessionId, 'arrival_beat', { referrerClass: ctx.referrerClass });
+      }
+    }
+  }
   if (facts) {
     const evs = await repo.eventsFor(ctx.sessionId);
     const buttonAt = evs.find((e) => e.kind === 'choice' &&
@@ -362,6 +402,37 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     if (ec) {
       echo = ec.line;
       await repo.appendExperienceEvent(ctx.sessionId, 'echo', { id: ec.id, scene: scene.id });
+    }
+
+    /*
+     * THE AFTERIMAGE — who this visitor has BEEN, across their own visits.
+     *
+     * The session set is built from this visitorId's sessions and nothing
+     * else, and deriveAfterimage double-checks it. Everything about this
+     * feature is fine except leaking one person's sentence to another, so the
+     * isolation is enforced twice and asserted in afterimage.test.ts.
+     */
+    if (!afterimage && (v?.visitCount ?? 0) > 0) {
+      const mySessions = (await repo.db.rows(`FROM sessions WHERE ${eq('visitorId', ctx.visitorId)}`))
+        .map((row) => String(row.sessionId));
+      if (mySessions.length) {
+        const myEvents = (await repo.db.rows('FROM events ORDER BY tick'))
+          .filter((e) => mySessions.includes(String(e.sessionId)))
+          .map((e) => ({
+            sessionId: String(e.sessionId), kind: String(e.kind),
+            tick: Number(e.tick ?? 0), payload: e.payload as Record<string, unknown>,
+          }));
+        const img = deriveAfterimage(
+          ctx.visitorId, v?.visitCount ?? 0,
+          { referrerClass: ctx.referrerClass },
+          myEvents, new Set(mySessions), ctx.sessionId,
+        );
+        const beat = afterimageBeat(s.seed, img);
+        if (beat && !evs.some((e) => e.kind === 'afterimage')) {
+          afterimage = beat.line;
+          await repo.appendExperienceEvent(ctx.sessionId, 'afterimage', { id: beat.id });
+        }
+      }
     }
 
     /*
@@ -538,6 +609,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     secondHalf,
     sting,
     echo,
+    afterimage,
     variant: plan.variant,
     officeLines: plan.hasOffice ? OFFICE_LINES : undefined,
     answered: (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered'),
