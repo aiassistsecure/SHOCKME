@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How we built SHOCKME — an engineering account</title>
+<meta name="description" content="8,191 lines, three processes, no build step. A technical account of building thrilling.world — and five bugs that passed every test.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=VT323&display=swap" rel="stylesheet">
+<style>
+:root{
+  --void:#0a0806; --ink:#100c08; --line:#2e2216; --line2:#463521;
+  --phos:#ffb03a; --phos-hot:#ffd08a; --phos-dim:#8a6533;
+  --red:#ff4d3d; --green:#57d38c;
+  --body:#c8b8a4; --body-dim:#8d8071;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+  --crt:'VT323',monospace;
+  --measure:74ch;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--void);color:var(--body);
+  font-family:var(--sans);font-size:17px;line-height:1.72;
+  -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:100;
+  background:repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0 1px,transparent 1px 3px);
+  opacity:.5;
+}
+.wrap{max-width:920px;margin:0 auto;padding:0 max(5vw,20px)}
+
+/* ---------- hero ---------- */
+header{padding:14vh 0 7vh;border-bottom:1px solid var(--line)}
+.kick{font-family:var(--mono);font-size:11px;letter-spacing:.34em;
+  text-transform:uppercase;color:var(--phos-dim);margin-bottom:2rem}
+h1{font-family:var(--crt);font-size:clamp(3.2rem,11vw,7rem);line-height:.86;
+  color:var(--phos-hot);letter-spacing:.02em;margin-bottom:.4rem;
+  text-shadow:2px 0 0 rgba(255,77,61,.42),-2px 0 0 rgba(61,166,255,.26),0 0 60px rgba(255,176,58,.2)}
+.sub{font-family:var(--crt);font-size:clamp(1.4rem,4vw,2.2rem);color:var(--phos);
+  line-height:1.1;margin-bottom:2.2rem}
+.dek{font-size:1.12rem;max-width:60ch;color:var(--body)}
+.dek strong{color:var(--phos-hot);font-weight:500}
+.byline{margin-top:2.6rem;font-family:var(--mono);font-size:12px;
+  letter-spacing:.1em;color:var(--phos-dim);line-height:2}
+.byline a{color:var(--phos)}
+
+/* ---------- structure ---------- */
+section{padding:6.5vh 0;border-bottom:1px solid var(--line)}
+section:last-of-type{border-bottom:0}
+h2{font-family:var(--crt);font-size:clamp(2rem,5.5vw,3.1rem);line-height:1;
+  color:var(--phos-hot);margin-bottom:.5rem;letter-spacing:.01em}
+.h2num{font-family:var(--mono);font-size:11px;letter-spacing:.3em;
+  color:var(--phos-dim);display:block;margin-bottom:.9rem}
+h3{font-family:var(--mono);font-size:.94rem;font-weight:600;letter-spacing:.04em;
+  color:var(--phos);margin:2.6rem 0 .9rem;text-transform:none}
+p{max-width:var(--measure);margin-bottom:1.15rem}
+p.lead{font-size:1.16rem;color:#d8cbb8;max-width:64ch}
+a{color:var(--phos);text-decoration:none;border-bottom:1px solid rgba(255,176,58,.3)}
+a:hover{color:var(--phos-hot);border-color:var(--phos-hot)}
+strong{color:var(--phos-hot);font-weight:600}
+em{color:#dcd0bd}
+code{font-family:var(--mono);font-size:.86em;color:var(--phos-hot);
+  background:rgba(255,176,58,.07);padding:.1em .38em;border-radius:2px}
+ul{max-width:var(--measure);margin:0 0 1.3rem;list-style:none}
+li{padding-left:1.35rem;position:relative;margin-bottom:.5rem}
+li::before{content:"—";position:absolute;left:0;color:var(--phos-dim)}
+
+/* ---------- components ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);margin:2.4rem 0}
+.stat{background:var(--ink);padding:1.4rem 1.2rem}
+.stat b{display:block;font-family:var(--crt);font-size:2.5rem;line-height:1;
+  color:var(--phos-hot);margin-bottom:.35rem}
+.stat span{font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--phos-dim);line-height:1.5;display:block}
+
+pre{background:var(--ink);border:1px solid var(--line);border-left:2px solid var(--phos-dim);
+  padding:1.3rem 1.5rem;overflow-x:auto;margin:1.7rem 0;
+  font-family:var(--mono);font-size:12.5px;line-height:1.75;color:#bda684}
+pre .c{color:var(--phos-dim)}
+pre .k{color:var(--phos)}
+pre .s{color:var(--green)}
+
+table{width:100%;border-collapse:collapse;margin:1.8rem 0;font-size:.9rem}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--phos-dim);text-align:left;padding:.65rem .8rem;border-bottom:1px solid var(--line2);font-weight:500}
+td{padding:.7rem .8rem;border-bottom:1px solid var(--line);vertical-align:top}
+td:first-child{font-family:var(--mono);font-size:.83rem;color:var(--phos);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.num{text-align:right;font-family:var(--mono);color:var(--phos-hot)}
+
+blockquote{border-left:2px solid var(--phos);padding:.3rem 0 .3rem 1.4rem;
+  margin:1.9rem 0;max-width:58ch;font-family:var(--crt);
+  font-size:1.5rem;line-height:1.34;color:var(--phos-hot)}
+blockquote.plain{font-family:var(--sans);font-size:1.05rem;line-height:1.7;
+  color:#d3c6b3;border-left-color:var(--line2)}
+
+.callout{border:1px solid var(--line2);background:linear-gradient(180deg,rgba(255,176,58,.045),transparent 60%);
+  padding:1.5rem 1.7rem;margin:2.2rem 0;max-width:var(--measure)}
+.callout .tag{font-family:var(--mono);font-size:10px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--phos);display:block;margin-bottom:.7rem}
+.callout p:last-child{margin-bottom:0}
+
+.bug{border:1px solid var(--line);margin:1.5rem 0;background:var(--ink)}
+.bug-h{display:flex;gap:1rem;align-items:baseline;padding:1.1rem 1.4rem;
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.bug-n{font-family:var(--crt);font-size:1.7rem;color:var(--red);line-height:1;flex:0 0 auto}
+.bug-t{font-family:var(--mono);font-size:.94rem;color:var(--phos-hot);font-weight:500}
+.bug-b{padding:1.3rem 1.4rem}
+.bug-b p{margin-bottom:.9rem;font-size:.97rem}
+.bug-b p:last-child{margin-bottom:0}
+.verdict{font-family:var(--mono);font-size:.82rem;color:var(--red);
+  border-top:1px dashed var(--line2);padding-top:.9rem;margin-top:1rem;display:block}
+
+.map{font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--phos-dim);
+  white-space:pre;overflow-x:auto;background:var(--ink);border:1px solid var(--line);
+  padding:1.6rem;margin:1.8rem 0}
+.map b{color:var(--phos-hot);font-weight:400}
+
+footer{padding:8vh 0 6vh;text-align:center}
+footer .mark{font-family:var(--crt);font-size:2rem;color:var(--phos);margin-bottom:1.2rem}
+footer p{margin:0 auto .6rem;max-width:46ch;font-size:.86rem;color:var(--body-dim)}
+.hrt{color:var(--red)}
+
+@media(max-width:640px){
+  body{font-size:16px}
+  header{padding:9vh 0 5vh}
+  pre{font-size:11px;padding:1rem}
+  .map{font-size:9.5px;padding:1rem}
+  td:first-child{white-space:normal}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header>
+  <div class="kick">Interchained · Engineering account · August 2026</div>
+  <h1>SHOCKME</h1>
+  <div class="sub">How we built a room that is<br>confidently wrong about itself.</div>
+  <p class="dek">
+    <strong>8,191 lines. Three processes. No build step, no bundler, no framework,
+    no client-side router, and zero runtime dependencies.</strong> This is a
+    technical account of <a href="https://thrilling.world" target="_blank" rel="noopener noreferrer">thrilling.world</a> —
+    including the five bugs that passed every test in the repository.
+  </p>
+  <div class="byline">
+    Live: <a href="https://thrilling.world" target="_blank" rel="noopener noreferrer">thrilling.world</a><br>
+    Source: <a href="https://github.com/aiassistsecure/SHOCKME" target="_blank" rel="noopener noreferrer">github.com/aiassistsecure/SHOCKME</a> · MIT<br>
+    Every figure below was read out of the repo or a running server.
+  </div>
+</header>
+
+<!-- 01 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">01</span>
+  <h2>What it is</h2>
+  <p class="lead">
+    You arrive in a waiting room that is polite, patient, and slightly wrong.
+    It counts chairs incorrectly and will not be persuaded otherwise. Strangers
+    murmur in a sidebar and you cannot tell which of them are real. At the end
+    it hands you a serial-numbered certificate of your visit that names the
+    rooms you never found.
+  </p>
+  <p>
+    The brief was specific and unusually hard to satisfy: <em>odd and
+    exhilarating at the same time. Addictive yet harmless. A little scary — but
+    not horror.</em> No gore, no threats, no jump scares. Closer to a Borges
+    footnote than a haunted house.
+  </p>
+
+  <div class="stats">
+    <div class="stat"><b>8,191</b><span>lines of TypeScript</span></div>
+    <div class="stat"><b>0</b><span>runtime dependencies</span></div>
+    <div class="stat"><b>13</b><span>rooms in the graph</span></div>
+    <div class="stat"><b>8 / 12</b><span>best possible single run</span></div>
+    <div class="stat"><b>14</b><span>test files</span></div>
+    <div class="stat"><b>5</b><span>bugs they all missed</span></div>
+  </div>
+</section>
+
+<!-- 02 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">02</span>
+  <h2>The stack</h2>
+  <p>
+    Three processes on one VPS. No orchestrator, no containers, no process
+    manager, no CI. The whole thing is three shell scripts and a git pull.
+  </p>
+
+  <table>
+    <tr><th>process</th><th>what</th><th class="num">port</th></tr>
+    <tr><td>nedbd</td><td><code>nedb-engine 2.8.2 --dag</code> — append-only, hash-linked, content-addressed</td><td class="num">7070</td></tr>
+    <tr><td>imagine</td><td>llama.cpp b10322 · Qwen3.5-0.8B GGUF Q4_K_M · 532 MB · CPU only</td><td class="num">8081</td></tr>
+    <tr><td>bff</td><td>Node 22 with <code>--experimental-strip-types</code></td><td class="num">3400</td></tr>
+  </table>
+
+  <p>
+    <strong>There is no build step.</strong> Node strips the TypeScript at load.
+    That flag is required on 22.6–23.5 and removed at 23.6+, which is the kind
+    of detail that costs an hour if it isn't written down — so it's written
+    down, in the run scripts.
+  </p>
+  <p>
+    Cloudflare <strong>Flexible</strong> SSL sits in front, terminating at nginx
+    on port 80 only. The box is a Mail-in-a-Box, so nginx wants
+    <code>sites-available</code> plus a symlink, and there is deliberately no
+    <code>https</code> redirect — Flexible mode would loop forever.
+  </p>
+
+  <h3>The BFF boundary</h3>
+  <p>
+    One module — <code>engine/nedb.ts</code> — is the sole HTTP client for the
+    datastore. Nothing else may speak to it. The browser's entire vocabulary is
+    <code>sceneId</code>, <code>choiceId</code>, <code>dwellMs</code>, a chair
+    count, a sentence, and an email address.
+  </p>
+  <div class="callout">
+    <span class="tag">The load-bearing rule</span>
+    <p>
+      <strong>The session seed never crosses the wire.</strong> Every random
+      decision — which rooms exist, how many chairs, which stranger speaks — is
+      made server-side from that seed. That is what makes a visit replayable,
+      provable, and impossible to tamper with from the client.
+    </p>
+  </div>
+</section>
+
+<!-- 03 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">03</span>
+  <h2>Persistence that cannot forget</h2>
+  <p>
+    Twelve collections in NEDB. Nothing is ever updated and nothing is ever
+    deleted — a "change" is a new row whose hash chains to the previous one.
+    <code>verify()</code> walks the entire chain and reports any tampering.
+  </p>
+
+<pre><span class="c">// 12 collections, append-only, hash-linked</span>
+visitors  sessions  experiences  scenes  events
+encounters  artifacts  broadcasts  experience_versions
+subscribers        <span class="c">← opt-in PII, deliberately NOT joined to behaviour</span>
+sites  pixel_events <span class="c">← the pixel</span>
+
+<span class="c">// 13 event kinds make up one visit</span>
+arrived · choice · dwell · counted · press · said · answered
+drawn · sting · echo · recognised · afterimage · arrival_beat</pre>
+
+  <p>
+    This is not architectural purity for its own sake. It is <em>load-bearing
+    for a joke.</em>
+  </p>
+  <p>
+    One of the rooms lists everything the system knows about you and offers a
+    button marked <strong>Delete it</strong>. Press it and the room answers:
+  </p>
+  <blockquote>It has been deleted. It has also been kept. These are different systems.</blockquote>
+  <p>
+    That is not a bit. It is a literal, accurate description of the storage
+    engine. The room physically cannot remove a row without breaking the chain —
+    all it can do is append the record of you asking. <strong>The architecture
+    wrote the best line in the product.</strong>
+  </p>
+
+  <h3>Two gotchas, encoded so they cannot be re-derived</h3>
+  <p>
+    NQL filters on <code>_id</code>, not <code>id</code>. Getting it wrong
+    returns silent empty results, which had already calcified into local
+    folklore — <em>"TRACE is broken."</em> It isn't. The <code>eq()</code>
+    helper now encodes the correct form so nobody rediscovers the myth.
+  </p>
+  <p>
+    <code>ensureDatabase()</code> lists before creating, because <code>POST</code>
+    on an already-open database returns <code>500 locked by another process
+    (pid N)</code> — where N is the daemon itself.
+  </p>
+</section>
+
+<!-- 04 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">04</span>
+  <h2>Determinism</h2>
+  <p>
+    mulberry32, with <strong>namespaced streams</strong>. This detail matters
+    more than it looks.
+  </p>
+
+<pre><span class="k">new</span> Rng(seed, <span class="s">'floorplan'</span>)          <span class="c">// which rooms exist</span>
+<span class="k">new</span> Rng(seed, <span class="s">'room'</span>)               <span class="c">// chairs, greeting, apology</span>
+<span class="k">new</span> Rng(seed, <span class="s">`sting:${sceneId}`</span>)   <span class="c">// which shock, where</span>
+<span class="k">new</span> Rng(seed, <span class="s">`verdict:${guess}`</span>)   <span class="c">// what the room thinks of your count</span></pre>
+
+  <p>
+    Without namespacing, adding one new consumer shifts every downstream
+    sequence — and every previously generated room silently becomes a different
+    room. With it, each subsystem draws from its own stream and new features
+    cannot disturb old ones.
+  </p>
+  <p>
+    Replays derive a <em>provable child</em>:
+    <code>deriveReplaySeed(parentSeed, replayIndex, worldSalt)</code>. The child
+    is cryptographically linked to the parent, so a replay can be demonstrated
+    to descend from the original visit rather than merely resembling it.
+  </p>
+  <p>
+    One deliberate exception: <strong><code>mintToken()</code> is not
+    seed-derived.</strong> A share token computable from a seed would let anyone
+    enumerate every artifact ever made.
+  </p>
+</section>
+
+<!-- 05 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">05</span>
+  <h2>A building that differs per visitor</h2>
+  <p>
+    The front page promises <em>"You didn't find the same website they did."</em>
+    For a while that was true of the words and false of everything else — there
+    was exactly one <code>SCENES</code> array and everyone walked it.
+  </p>
+  <p>
+    Now <code>planFor(seed, SCENES)</code> returns a mutated copy per visitor.
+  </p>
+
+<div class="map">                      ┌─ seated ─┐
+        <b>arrival</b> ──────┼─ <b>notice</b> ─┼────► <b>counting</b> ──► <b>button</b>
+                      └─ <b>standing</b>┘                    │
+                                                     ▼
+                                ┌─────────── <b>corridor</b> ───────────┐
+                                │             │                  │ ~17%
+                         wing A │             │ wing B           │
+                                ▼             ▼                  ▼
+                            <b>ledger</b>       <b>inventory</b>          <b>office</b>
+                                │             │                  │
+                                ▼             ▼                  │
+                            <b>recital</b>        <b>dark</b>              │
+                                └──────► <b>threshold</b> ◄────────────┘
+                                             │  ← the only gate
+                                             ▼
+                                        <b>the artifact</b></div>
+
+  <table>
+    <tr><th>mutation</th><th class="num">rate</th><th>effect</th></tr>
+    <tr><td>wings reversed</td><td class="num">~50%</td><td>two visitors describing "the room with the numbers" disagree about when it happened</td></tr>
+    <tr><td>the office</td><td class="num">~17%</td><td>a third corridor door — a desk with no chair, and a form with your visitor number already filled in</td></tr>
+    <tr><td>one-way corridor</td><td class="num">~22%</td><td>both doors lead to the same wing: different text, same action</td></tr>
+    <tr><td>narrowed room</td><td class="num">~30%</td><td>a room offers a single choice, breaking the two-button grammar you've learned</td></tr>
+    <tr><td>prune</td><td class="num">always</td><td>rooms orphaned by the above are removed from the plan</td></tr>
+  </table>
+
+  <h3>The prune is the interesting part</h3>
+  <p>
+    The one-way corridor orphans an entire wing. The test caught it instantly —
+    <strong>152 failures</strong>, all <code>inventory unreachable / dark
+    unreachable</code>.
+  </p>
+  <p>
+    The fix was not to weaken the variation. It was to <em>delete the
+    orphans</em>: if no door in your building opens onto the dark, then for you
+    there is no dark. Some visitors genuinely have fewer rooms than others,
+    which is the entire point — and reachability became true
+    <strong>by construction</strong> rather than by careful authoring.
+  </p>
+
+  <div class="callout">
+    <span class="tag">The retention mechanic</span>
+    <p>
+      The best possible single run sees <strong>8 of 12 rooms</strong>. The
+      artifact names what you missed, preferring the hidden wing over rooms you
+      visibly declined:
+    </p>
+    <blockquote class="plain">there are 12 rooms. you found 7. you did not find the ledger or the recital.</blockquote>
+    <p>
+      No streak. No timer. No guilt. Just an accurate sentence that happens to
+      be unbearable to leave alone. <strong>Make returning rewarding, never make
+      leaving punishing.</strong>
+    </p>
+  </div>
+</section>
+
+<!-- 06 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">06</span>
+  <h2>Three ways to write a line</h2>
+  <p class="lead">
+    This is the central design finding of the project, and it took a blunt piece
+    of feedback to arrive at: <em>"it's not fun yet, it's just odd."</em>
+  </p>
+
+  <h3>Pools produce atmosphere</h3>
+  <p>
+    A random line from a list. Consistent, pleasant, slightly wrong hum.
+    <strong>Pools cannot produce tension</strong> — tension requires the line to
+    be about <em>you</em>, and a random pick is by definition about nobody. No
+    amount of rewriting the pools would have closed that gap.
+  </p>
+
+  <h3>Stings produce tension</h3>
+  <p>
+    Twelve of them, each bound to a <em>fact</em> rather than to a room. A sting
+    does not fire unless something specific and <strong>measured</strong> is true
+    about this visitor right now.
+  </p>
+  <blockquote>You have been here 14 seconds. You are not reading this.</blockquote>
+  <blockquote>You thought about the button for 26 seconds. It thought about you for exactly as long.</blockquote>
+  <blockquote>Somebody said “the lamp is listening” in this room. The room is not going to say who.</blockquote>
+  <p style="color:var(--body-dim);font-size:.95rem">
+    ↑ They said that themselves, four screens earlier.
+  </p>
+
+  <p>Since <em>"make it scarier"</em> is unfalsifiable, the rules are explicit:</p>
+  <ul>
+    <li><strong>Specificity is the whole effect.</strong> Every sting quotes a real number. "You waited 41 seconds" is unsettling; "you waited a while" is set dressing.</li>
+    <li><strong>Short.</strong> Tension does not survive a subordinate clause.</li>
+    <li><strong>The turn.</strong> Benign sentence, then a pivot that recontextualises it.</li>
+    <li><strong>Implication, never statement.</strong> The room never says anything frightening — it says something mundane and lets you assemble the rest. Fear you build yourself is the good kind.</li>
+    <li><strong>No threats, ever.</strong> Nothing menaces the visitor or implies they are trapped. That's the horror register, and it's also the cheap one.</li>
+    <li><strong>Rare.</strong> Hard cap of two per session, ~44% of eligible screens, never repeated to the same person. A shock on every screen is texture — and texture is what we already had.</li>
+  </ul>
+
+  <h3>Echoes produce causality</h3>
+  <p>
+    Eleven of them. A line in a <em>later</em> room that could only exist because
+    of an <em>earlier</em> choice, sitting in ordinary prose rather than a
+    special box.
+  </p>
+  <blockquote class="plain">
+    the button is still warm. nobody has been near it. <span style="color:var(--phos-dim)">(you pressed it)</span><br>
+    you never sat down. all four chairs are still perfect.<br>
+    there are 6 chairs behind you. you still think there are 7.
+  </blockquote>
+  <p>
+    Never shown in the room where the choice was made — a consequence you see
+    immediately is just feedback.
+  </p>
+
+  <div class="callout">
+    <span class="tag">The invariant behind all three</span>
+    <p>
+      <strong>Nothing the room asserts is invented.</strong> Every number comes
+      out of the event log, or the line is not shown at all. One fabricated fact
+      and the whole effect dies on somebody's second visit.
+    </p>
+    <p>
+      The room is unsettling because it was <em>paying attention</em> — not
+      because it is pretending to be haunted. That turned out to be the only
+      genuinely thrilling thing a browser can do without gore.
+    </p>
+  </div>
+</section>
+
+<!-- 07 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">07</span>
+  <h2>The crowd, and the sentence you owe</h2>
+  <p>
+    A 4-second tick clock derived from wall time, so every observer agrees on
+    "now" without shared state. Fifteen handle stems — <em>someone · nobody ·
+    not you · the seventh · a held breath</em> — and 58 ambient lines grouped by
+    preoccupation. Handles are drawn <strong>without replacement</strong> so two
+    bots never share a name in one window.
+  </p>
+  <p>
+    <strong>Real humans enter the same rail.</strong> Same handle pool, same
+    styling, same position. <em>"Is that a person?"</em> stays unanswerable, and
+    that ambiguity is the feature — a chat UI announcing itself as chat would
+    flatten the room into a lobby.
+  </p>
+  <p>
+    Transport is SSE, chosen over WebSocket for zero dependencies. Each
+    connection holds a monotonic cursor. An early version emitted only on tick
+    change, which meant <em>your own message never appeared</em> — you could
+    speak into the room and watch nothing happen.
+  </p>
+
+  <h3>The threshold</h3>
+  <p>
+    The only hard gate in the experience. You cannot leave until you write a
+    sentence, and it is enforced <strong>server-side</strong> — a disabled button
+    is a suggestion.
+  </p>
+
+<pre>Before you leave, tell us what this was like.
+[ one sentence is enough                     ]
+200                        GIVE IT TO THE ROOM
+<span class="c">Everyone in the room will see this.</span></pre>
+
+  <p>
+    The answer is screened, stored, <strong>broadcast into the live rail</strong>,
+    and written as an ordinary utterance — so it becomes material for a later
+    visitor's recital. The loop closes: the strangers whose words get quoted at
+    you were people standing exactly where you are standing.
+  </p>
+  <p>
+    A keyword classifier reads its tone, and <strong>the classifier being wrong
+    is the mechanic, not a defect.</strong> The room is characterised as
+    confidently, politely mistaken, so the artifact <em>disagrees</em> with you
+    rather than summarising you:
+  </p>
+  <blockquote class="plain">
+    you found it unsettling. the room found you very calm.<br>
+    one sentence was submitted. it did not match the room's version of your visit.
+  </blockquote>
+  <p>
+    There is no failure mode where a misclassification makes the product worse.
+  </p>
+</section>
+
+<!-- 08 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">08</span>
+  <h2>A 0.8B model with no hands</h2>
+  <p>
+    <code>imagine</code> runs Qwen3.5-0.8B on CPU via llama.cpp — 532 MB, quantised
+    to Q4_K_M, <code>--parallel 1</code> so the KV cache is reused. It generates
+    the ambient voices. Flag-gated; if unreachable it falls back to the curated
+    corpus with a loud banner and an honest <code>/health</code>.
+  </p>
+
+<pre>n_predict <span class="k">48</span> · temperature <span class="k">1.0</span> · top_p <span class="k">0.95</span>
+repeat_penalty <span class="k">1.12</span> · cache_prompt <span class="k">true</span>
+
+<span class="c">// prefilled to suppress reasoning</span>
+&lt;think&gt;\n\n&lt;/think&gt;\n\n&lt;&lt;&lt;LINE&gt;&gt;&gt;</pre>
+
+  <p>
+    Prompt discipline came from KeyStone-Lite and took sentinel compliance from
+    <strong>2/8 to 8/8</strong>. Inference never blocks a request — an early
+    version did, and the ending hung for over two minutes. A background pump
+    pre-generates; the scene now renders in ~65ms.
+  </p>
+
+  <h3>The drawing, and a criterion that was wrong</h3>
+  <p>
+    At the end, the room is asked to draw something: <em>"the person who just
+    left." "Yourself." "The sound the lamp makes."</em> Twelve subjects, several
+    impossible. Output is palette-filtered to
+    <code>| - _ / \ . o ( ) [ ]</code>, capped at 5 lines, and
+    <strong>never repaired.</strong>
+  </p>
+  <p>
+    The first two experiments were logged as failures. Asked for ASCII art, the
+    model produced a markdown fence and 393 characters of underscores. Asked for
+    a joke, it rambled for 8.4 seconds without landing one. The plan was to
+    render everything deterministically instead.
+  </p>
+  <div class="callout">
+    <span class="tag">The correction</span>
+    <p>
+      The bar was wrong. It wasn't <em>"is this competent"</em> — it was
+      <em>"is this strange."</em> Re-read correctly, the outputs are excellent:
+      asked to draw a person, the model wrote out the alphabet it had been given,
+      four times. It does not know what a person looks like, so it copied the
+      characters. <strong>Asked to draw itself, it produced nothing at all.</strong>
+    </p>
+    <p>
+      A blank result is now the strongest available outcome and is counted as a
+      success. Nothing in the code tries to make the model good at drawing. The
+      frame does the work: a sincere attempt by something with no hands that has
+      never seen anything.
+    </p>
+  </div>
+</section>
+
+<!-- 09 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">09</span>
+  <h2>Knowing things without watching</h2>
+  <p>
+    The product's central claim is that the room is strange from its own world
+    model and <em>never</em> from surveillance. That constrains the data layer
+    hard, and the constraint made the writing better rather than worse.
+  </p>
+
+  <table>
+    <tr><th>collected</th><th>never collected</th></tr>
+    <tr><td style="color:var(--green)">opaque visitor + session id</td><td style="color:var(--red)">IP address</td></tr>
+    <tr><td style="color:var(--green)">choices, dwell time</td><td style="color:var(--red)">user agent</td></tr>
+    <tr><td style="color:var(--green)">what you type in the room</td><td style="color:var(--red)">referrer URL</td></tr>
+    <tr><td style="color:var(--green)">a nine-value arrival class</td><td style="color:var(--red)">fingerprint, location, any third-party signal</td></tr>
+  </table>
+
+  <p>
+    <code>classifyReferrer()</code> reduces a referring URL to one of nine enum
+    values and <strong>discards the original in the same function.</strong> A
+    full URL can carry a username, a search query, a private group id. The class
+    cannot. Verified: a visit from
+    <code>old.reddit.com/r/InternetIsBeautiful/comments/x</code> leaves zero
+    matches for "reddit" anywhere in the admin panel.
+  </p>
+  <p>
+    Platforms are never named to the visitor. Instead they're translated:
+  </p>
+  <blockquote class="plain">
+    <strong>reddit</strong> → You arrived from a room inside a room. Somebody left a door open.<br>
+    <strong>x / t.co</strong> → You arrived from a place where every sentence is already leaving.<br>
+    <strong>search</strong> → You went looking for something and were given this instead.<br>
+    <strong>direct</strong> → <em>nothing at all. The room does not guess where you were.</em>
+  </blockquote>
+
+  <h3>Consent with teeth</h3>
+  <p>
+    Declining disables arrival classification, cross-visit memory, and any beat
+    that references a previous visit. The visitor still gets every room.
+    <strong>A consent dialog whose "no" changes nothing is worse than no
+    dialog.</strong>
+  </p>
+  <p>
+    A cookie wall was proposed and refused. Conditioning access on consent makes
+    the consent legally worthless — and it would have been the most exposed thing
+    in an otherwise clean product, protecting a nice-to-have. The refusal was
+    accepted in one message and the product got better.
+  </p>
+
+  <h3>The limit we will not engineer around</h3>
+  <p>
+    Cross-origin identity stitching is not implemented and cannot be. Third-party
+    cookies are blocked or partitioned; storage is keyed by top-level site. The
+    only remaining routes are a shared login (there isn't one) or fingerprinting
+    (refused). So each property gets its own first-party visitor id.
+  </p>
+  <p>
+    Worth stating plainly, because it surprises people: <strong>Meta's pixel has
+    exactly the same requirement.</strong> Facebook cannot observe you on a site
+    that hasn't installed their script, and no platform sells anyone the ability
+    to run code on facebook.com. A "unified identity" would just be a fingerprint
+    with better branding.
+  </p>
+</section>
+
+<!-- 10 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">10</span>
+  <h2>Five bugs that passed every test</h2>
+  <p class="lead">
+    Each of these was green across the entire suite at the moment it was broken.
+    All five were caught by a human playing the thing, or by writing a document
+    about it.
+  </p>
+
+  <div class="bug">
+    <div class="bug-h"><span class="bug-n">01</span><span class="bug-t">The hidden chair</span></div>
+    <div class="bug-b">
+      <p><code>.chair</code> sets <code>opacity:0</code> and relies on an animation to reveal it. The late chair carried <code>style="opacity:0;animation:none"</code>. Clearing the inline opacity fell back to <code>0</code>, and the inline <code>animation:none</code> outranked <code>.chair.late</code> — so <code>arrive</code> never played.</p>
+      <p><strong>A chair existed in the DOM and could never be seen</strong>, while every number about it was correct: 4 visible, you counted 4, "correct at the time", difference 1. The room was telling the truth about a chair it had failed to draw.</p>
+      <span class="verdict">Why the tests missed it: they counted DOM nodes. A node that exists but can never be seen counts exactly the same.</span>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-h"><span class="bug-n">02</span><span class="bug-t">The invisible second half</span></div>
+    <div class="bug-b">
+      <p><code>@keyframes fadeup</code> was referenced by five rules and defined by none. All five pair it with <code>opacity:0</code>. An undefined animation does not run and does not warn.</p>
+      <p><strong>Seven rooms rendered completely blank.</strong> The ledger fetched six correct numbers out of the event log and drew them into an invisible table — then offered "That cannot be right" as a response to an empty screen. The choices weren't badly written; they were orphaned from content nobody could see.</p>
+      <span class="verdict">Why the tests missed it: CSS is silent about this. No warning, no exception, a page that renders "successfully."</span>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-h"><span class="bug-n">03</span><span class="bug-t">The silent signup</span></div>
+    <div class="bug-b">
+      <p><code>repo.addSubscriber</code> called <code>this.db.insert()</code>, which does not exist — the method is <code>put()</code>. The route wrapped it in a catch designed to never show visitors a plumbing error, which swallowed the exception.</p>
+      <p>The endpoint returned <code>ok:true</code> and stored nothing. <strong>A signup form that looked like it worked and dropped every single lead</strong> — for the one thing the business model depends on.</p>
+      <span class="verdict">Why the tests missed it: nothing checked the stored row. The 200 was trusted.</span>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-h"><span class="bug-n">04</span><span class="bug-t">The leftover message</span></div>
+    <div class="bug-b">
+      <p>The artifact's "Go in" was a plain <code>href="/"</code>, which handed the browser back to the same finished session via its cookie. A second game was not a second game: same ending, same answer, threshold gate already satisfied by the previous run.</p>
+      <p><code>replaySession()</code> had been correct the whole time. <strong>Nothing was calling it.</strong></p>
+      <span class="verdict">Why the tests missed it: every test started from a clean cookie jar.</span>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-h"><span class="bug-n">05</span><span class="bug-t">The install-only collections</span></div>
+    <div class="bug-b">
+      <p><code>sites</code> and <code>pixel_events</code> were never added to <code>COLLECTIONS</code>. The pixel worked in testing anyway, because <code>put()</code> creates a collection on demand and the local database already existed.</p>
+      <p><strong>On a fresh deploy, <code>ensureDatabase()</code> would not have created them.</strong> The classic install-only bug: passes everywhere except a brand new box, which is the one place nobody tests.</p>
+      <span class="verdict">Found by writing the status document. Not by running anything.</span>
+    </div>
+  </div>
+</section>
+
+<!-- 11 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">11</span>
+  <h2>Two patterns, and what we did about them</h2>
+
+  <h3>One rule, implemented in more than one place</h3>
+  <p>
+    The deduplication window. The chair count. The late chair. Two artifact
+    renderers that drifted apart so the ending you saw and the ending your friend
+    saw were different objects. Same failure, four times in one day.
+  </p>
+  <p>
+    The fix is never cleverness. It is <strong>one source of truth with several
+    readers.</strong> When two stacked footers needed to avoid each other, the
+    height became a single CSS variable read by three rules — because three
+    hard-coded <code>34</code>s would have drifted inside a week.
+  </p>
+
+  <h3>Verifying the producer instead of the product</h3>
+  <p>
+    A prompt was checked instead of the model's reply. Compiled source was
+    checked instead of the actual tweet, which shipped a literal
+    <code>${v.chairHint}</code> to a real timeline. A <code>200</code> was checked
+    instead of the stored row. HTML was grepped for text without ever asking
+    whether any of it was <em>visible.</em>
+  </p>
+  <div class="callout">
+    <span class="tag">What came out of it</span>
+    <p>
+      <code>run/smoke.sh</code> plays three complete games over HTTP, follows
+      whatever choices the server actually offers, answers when asked, and
+      asserts it reaches an artifact carrying that game's own message. It cannot
+      be a unit test — after the floorplan work there is no fixed path left to
+      hard-code, which is precisely why a walker is the right shape.
+    </p>
+    <p>
+      Plus a test asserting every referenced CSS animation has a matching
+      <code>@keyframes</code>, and one asserting the late chair's
+      <em>reveal path</em> is reachable rather than merely present.
+    </p>
+  </div>
+</section>
+
+<!-- 12 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">12</span>
+  <h2>What we refused to build</h2>
+  <p>
+    "Addictive yet harmless" was the constraint that took the most thought,
+    because the easy version of addictive is a dark pattern.
+  </p>
+  <p><strong>Refused, deliberately:</strong> streaks · daily-login pressure ·
+    exit guilt · FOMO timers · artificial scarcity · notification nagging ·
+    infinite scroll · sunk-cost framing · any copy that makes leaving feel like
+    losing · a cookie wall · fingerprinting · cross-site tracking.</p>
+  <p>
+    <strong>Used instead:</strong> a graph wider than one visit, and an accurate
+    sentence about what you missed. Curiosity rather than compulsion — and
+    curiosity has a floor. You can satisfy it in three minutes and be genuinely
+    done.
+  </p>
+  <blockquote>Make returning rewarding. Never make leaving punishing.</blockquote>
+</section>
+
+<!-- 13 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">13</span>
+  <h2>The best idea wasn't the builder's</h2>
+  <p class="lead">
+    The counting room originally counted <em>for</em> you. A late chair arrived
+    on a timer, a tally updated itself, and you were asked to agree or disagree
+    with the result.
+  </p>
+  <p>
+    It read as odd rather than fun, and the reason came from the person playing
+    it, not the person building it: <em>nothing was at stake.</em> The late chair
+    was wallpaper and "agree / disagree" was a button pair with no position
+    behind it.
+  </p>
+  <p>The proposed fix was to reverse the order of operations:</p>
+  <div class="callout">
+    <span class="tag">The change</span>
+    <p>
+      The room states its claim. <strong>You type your own number and commit
+      it.</strong> ~1.4 seconds later, the last chair walks in. The difference is
+      computed against <em>your</em> number. Only then do the exits unlock.
+    </p>
+    <p>
+      <strong>The answer you gave was correct when you gave it.</strong> The room
+      never tells you you're wrong — it just quietly stops being the room you
+      counted. That is a far better joke than the room being wrong on its own,
+      because now it happened <em>to you</em>.
+    </p>
+  </div>
+  <p>
+    It also produced the strongest sting in the game — <em>"You were right. You
+    are no longer right. Nothing you did caused this."</em> — and turned the
+    artifact into a three-way disagreement worth screenshotting:
+  </p>
+  <blockquote>you counted 9. the room insisted on 4. it drew 3.</blockquote>
+</section>
+
+<!-- 14 ------------------------------------------------------------- -->
+<section>
+  <span class="h2num">14</span>
+  <h2>Honest ledger</h2>
+  <p>Still open, and worth saying out loud:</p>
+  <ul>
+    <li><strong>~78% of visitors touch nothing.</strong> That is the real problem and none of the recent work addressed it. The first fifteen seconds remain the weak point.</li>
+    <li>No <code>og:image</code> — shares still unfurl as plain text.</li>
+    <li>Live voices are in-memory; a restart clears the rail.</li>
+    <li>Nothing supervises the three processes.</li>
+    <li>The Properties admin form has been exercised by <code>curl</code>, never by a human hand.</li>
+  </ul>
+  <p>
+    A build log that only records successes is not a build log.
+  </p>
+</section>
+
+<footer>
+  <div class="mark">◈</div>
+  <p><a href="https://thrilling.world" target="_blank" rel="noopener noreferrer">thrilling.world</a> · <a href="https://github.com/aiassistsecure/SHOCKME" target="_blank" rel="noopener noreferrer">source on GitHub</a> · MIT</p>
+  <p>made with <span class="hrt">&hearts;</span> by two ghosts and a human · powered by <a href="https://interchained.org" target="_blank" rel="noopener noreferrer">interchained</a></p>
+  <p style="color:var(--phos-dim);font-size:.78rem;margin-top:1.4rem">Only one of them needs to sleep.</p>
+</footer>
+
+</div>
+</body></html>
