@@ -202,6 +202,7 @@ async function resolveCtx(req: IncomingMessage): Promise<Ctx> {
 
   let visitorId = c.sm_v ?? '';
   let visitor = visitorId ? await repo.getVisitor(visitorId) : null;
+  const isNewVisitor = !visitor;
   if (!visitor) {
     visitor = await repo.createVisitor();
     visitorId = visitor.visitorId;
@@ -211,6 +212,23 @@ async function resolveCtx(req: IncomingMessage): Promise<Ctx> {
   let sessionId = c.sm_s ?? '';
   const existing = sessionId ? await repo.getSession(sessionId) : null;
   if (!existing) {
+    /*
+     * A NEW SESSION FOR AN EXISTING VISITOR IS A RETURN VISIT.
+     *
+     * touchVisitor() was written on day one and then never called from
+     * anywhere, so visitCount was permanently 0 for every human who has ever
+     * been here. The admin panel reported "returning visitors: 0" against 57
+     * replays and that was accurate — nothing was counting.
+     *
+     * The cost was not the statistic. visitCount > 0 gates the ENTIRE
+     * afterimage: the cross-visit memory, the "You came back." greeting, the
+     * been-here-before sting, and the beat that quotes a sentence you left on
+     * a previous visit. All of it was dead code in production, and no test
+     * caught it because every test starts from a clean cookie jar.
+     */
+    if (!isNewVisitor) {
+      try { await repo.touchVisitor(visitorId); } catch { /* never fail a page over a counter */ }
+    }
     const s = await repo.createSession(visitorId, EXPERIENCE_ID, INITIAL_SCENE);
     sessionId = s.sessionId;
     setCookies.push(cookie('sm_s', sessionId));
@@ -1131,6 +1149,8 @@ const server = createServer(async (req, res) => {
      */
     if (path === '/again') {
       const ctx = await resolveCtx(req);
+      // going round again is a return visit; the room should know next time
+      try { await repo.touchVisitor(ctx.visitorId); } catch { /* not worth failing for */ }
       const fresh = await repo.replaySession(ctx.sessionId, INITIAL_SCENE);
       res.writeHead(302, {
         location: '/',
@@ -1153,6 +1173,7 @@ const server = createServer(async (req, res) => {
       if (path === '/') {
         const cur = await repo.getSession(ctx.sessionId);
         if (cur && cur.currentSceneId === 'end') {
+          try { await repo.touchVisitor(ctx.visitorId); } catch { /* not worth failing for */ }
           const fresh = await repo.replaySession(ctx.sessionId, INITIAL_SCENE);
           ctx.sessionId = fresh.sessionId;
           ctx.setCookies.push(cookie('sm_s', fresh.sessionId));
