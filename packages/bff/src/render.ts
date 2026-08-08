@@ -10,6 +10,7 @@
  * Everything respects prefers-reduced-motion.
  */
 
+import { ANSWER_PROMPT, ANSWER_PLACEHOLDER, ANSWER_MAX } from '../../engine/src/experiences/answer.ts';
 import type { Facts, SecondHalf } from '../../engine/src/experiences/second-half.ts';
 import { comparisonLine, fmtDuration, missedRooms, ROOM_NAMES, TOTAL_ROOMS } from '../../engine/src/experiences/second-half.ts';
 import type { Resolved } from '../../engine/src/experiences/waiting-room.ts';
@@ -216,6 +217,26 @@ h1{
 
 /* --- the count, set against itself --- */
 .lede.dim{color:var(--phos-dim)}
+
+/* --- the one thing the room asks for --- */
+.askform{max-width:460px;margin-bottom:2rem;border-top:1px solid var(--line);padding-top:1.2rem}
+.askform label{display:block;font-size:.95rem;color:var(--phos-hot);margin-bottom:.7rem}
+#answer{width:100%;background:transparent;border:1px solid var(--line);color:var(--phos-hot);
+  font:inherit;font-size:.92rem;line-height:1.5;padding:.7rem;outline:none;resize:vertical;
+  transition:border-color .2s}
+#answer::placeholder{color:var(--phos-dim)}
+#answer:focus{border-color:var(--phos)}
+#answer:disabled{opacity:.55}
+.askrow{display:flex;justify-content:space-between;align-items:center;margin-top:.6rem;gap:1rem}
+.askcount{font-family:var(--crt);font-size:1rem;color:var(--phos-dim)}
+.askcount.low{color:var(--bleed-r)}
+#askgo{background:transparent;border:1px solid var(--line);color:var(--phos);font:inherit;
+  font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;padding:.55rem .9rem;
+  cursor:pointer;transition:background .18s,color .18s}
+#askgo:hover:not(:disabled){background:var(--phos);color:#120b04}
+#askgo:disabled{color:var(--phos-dim);cursor:default}
+.asknote{margin-top:.6rem;font-size:.72rem;color:var(--phos-dim);line-height:1.5}
+.asknote.done{color:var(--phos-hot)}
 /* the echo is ordinary prose, one shade warmer. nothing announces it. */
 .lede.echo{color:var(--phos);border-left:1px solid var(--line);padding-left:1rem}
 
@@ -529,6 +550,8 @@ export interface RoomView {
   secondHalf: SecondHalf;
   /** A measured, true, unsettling sentence about THIS visitor. Rare. */
   sting?: string;
+  /** True once the visitor has written their answer. Gates the exit. */
+  answered?: boolean;
   /** A line that could only exist because of an earlier choice. */
   echo?: string;
   artifact?: {
@@ -775,6 +798,16 @@ export function renderRoom(v: RoomView): string {
           There are ${v.facts!.population} of us in here.</p>
       </div>`;
   } else if (v.renderer === 'threshold') {
+    /*
+     * THE ONE PLACE THE ROOM ASKS YOU FOR SOMETHING.
+     *
+     * Every other interaction is selecting from options somebody else wrote.
+     * Here the visitor contributes language, and the room decides what it
+     * meant. The exit stays shut until they do — the only gate in the piece.
+     *
+     * It is at the threshold because by now they HAVE an impression to give;
+     * asking on arrival would be asking about nothing.
+     */
     const f = v.facts!;
     const missed = missedRooms(f.roomsSeen);
     main = `
@@ -783,7 +816,17 @@ export function renderRoom(v: RoomView): string {
         <p class="lede">${esc(v.secondHalf.thresholdLine)}</p>
         ${missed.length ? `<p class="lede dim">You did not find ${esc(missed.slice(0, 2).join(' or '))}.
           They were here the whole time.</p>` : ''}
-      </div>`;
+      </div>
+      <form class="askform r d4" id="askform" autocomplete="off">
+        <label for="answer">${esc(ANSWER_PROMPT)}</label>
+        <textarea id="answer" name="answer" rows="2" maxlength="${ANSWER_MAX}"
+                  placeholder="${esc(ANSWER_PLACEHOLDER)}" aria-label="${esc(ANSWER_PROMPT)}"></textarea>
+        <div class="askrow">
+          <span class="askcount" id="askcount">${ANSWER_MAX}</span>
+          <button type="submit" id="askgo">Give it to the room</button>
+        </div>
+        <div class="asknote" id="asknote">Everyone in the room will see this.</div>
+      </form>`;
   } else if (v.renderer === 'button') {
     main = `
       <div class="r d3">
@@ -827,7 +870,7 @@ export function renderRoom(v: RoomView): string {
 
   const choices = v.choices.length ? `
     <div class="choices r d5">
-      ${v.choices.map((c) => `<button class="choice" data-choice="${esc(c.id)}"${v.renderer === 'counting' ? ' disabled' : ''}${c.hover ? ` data-hover="${esc(c.hover)}"` : ''}>
+      ${v.choices.map((c) => `<button class="choice" data-choice="${esc(c.id)}"${v.renderer === 'counting' || (v.renderer === 'threshold' && !v.answered) ? ' disabled' : ''}${c.hover ? ` data-hover="${esc(c.hover)}"` : ''}>
         <span>${esc(c.label)}</span><span class="arrow">&rarr;</span></button>`).join('')}
     </div>` : '';
 
@@ -1047,6 +1090,45 @@ if (cf) {
 } else if (late) {
   // any other scene showing chairs keeps the original timed arrival
   setTimeout(() => { late.classList.remove('pending'); late.classList.add('late'); }, NUDGE_LATE_CHAIR);
+}
+
+// the threshold asks you for something, and will not open until you answer
+const ask = document.getElementById('askform');
+if (ask) {
+  const ta = document.getElementById('answer');
+  const go = document.getElementById('askgo');
+  const note = document.getElementById('asknote');
+  const count = document.getElementById('askcount');
+  const MAXA = ${ANSWER_MAX};
+  go.disabled = true;
+  ta.addEventListener('input', () => {
+    const left = MAXA - ta.value.length;
+    count.textContent = String(left);
+    count.classList.toggle('low', left < 30);
+    go.disabled = ta.value.trim().length < 2;
+  });
+  ask.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    go.disabled = true;
+    try {
+      const r = await fetch('/bff/answer', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: ta.value }),
+      });
+      const d = await r.json();
+      note.textContent = d.message;
+      note.classList.add('done');
+      if (d.ok) {
+        ta.disabled = true;
+        go.textContent = 'Given';
+        // the way out opens
+        document.querySelectorAll('[data-choice]').forEach((b) => { b.disabled = false; });
+      } else { go.disabled = false; }
+    } catch (_) {
+      note.textContent = 'It did not reach the room. Try once more.';
+      go.disabled = false;
+    }
+  });
 }
 
 // 3. the room notices you doing nothing, and escalates gently

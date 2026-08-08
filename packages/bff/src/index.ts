@@ -34,6 +34,9 @@ import { draw, subjectFor, type Drawing } from '../../engine/src/drawing.ts';
 import { stingFor, MAX_STINGS } from '../../engine/src/experiences/sting.ts';
 import { echoFor, recognitionFor } from '../../engine/src/experiences/consequence.ts';
 import {
+  readAnswer, ANSWER_MIN, ANSWER_MAX, ANSWER_PROMPT, ANSWER_PLACEHOLDER,
+} from '../../engine/src/experiences/answer.ts';
+import {
   resolveSecondHalf, comparisonLine, missedRooms, fmtDuration,
   ROOM_NAMES, TOTAL_ROOMS, ALL_ROOM_IDS, type Facts,
 } from '../../engine/src/experiences/second-half.ts';
@@ -431,6 +434,19 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
          * recorded values, so alongside the chair line above this states a
          * second consequence of something the visitor actually did.
          */
+        /* what you wrote on the way out, and what the room decided it meant */
+        (() => {
+          const a = evs.find((e) => e.kind === 'answered');
+          if (!a) return 'you were asked what this was like. you have not answered yet.';
+          const p = a.payload as Record<string, unknown>;
+          return `you were asked what this was like. you said \u201C${String(p.fragment ?? '')}\u201D.`;
+        })(),
+        (() => {
+          const a = evs.find((e) => e.kind === 'answered');
+          if (!a) return 'the room is still holding the question open.';
+          const p = a.payload as Record<string, unknown>;
+          return readAnswer(s.seed, String(p.text ?? '')).artifactLine;
+        })(),
         (() => {
           const f = facts;
           if (!f) return 'the room has stopped keeping track for now.';
@@ -495,6 +511,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     secondHalf,
     sting,
     echo,
+    answered: (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered'),
   });
 }
 
@@ -586,6 +603,16 @@ const server = createServer(async (req, res) => {
       const choice = scene.choices.find((c) => c.id === choiceId);
       if (!choice) return json(res, { error: 'no such choice' }, 400);
 
+      /*
+       * THE ONLY GATE IN THE EXPERIENCE, enforced server-side. The threshold
+       * form is disabled in the browser too, but a disabled button is a
+       * suggestion — the requirement lives here.
+       */
+      if (scene.id === 'threshold') {
+        const answered = (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered');
+        if (!answered) return json(res, { error: 'The room asked you something first.' }, 409);
+      }
+
       await repo.appendExperienceEvent(ctx.sessionId, 'choice', {
         choiceId: choice.id, label: choice.label, from: scene.id, to: choice.next,
       });
@@ -636,6 +663,57 @@ const server = createServer(async (req, res) => {
       // Same reply whether or not they were already on the list — otherwise
       // the form becomes a way to test whether an address is subscribed.
       return json(res, { ok: true, message: 'Thank you. You will hear from the room.' });
+    }
+
+    /* ---- the one thing the room asks you for ---- */
+    if (path === '/bff/answer' && req.method === 'POST') {
+      const ctx = await resolveCtx(req);
+      const sess = (await repo.getSession(ctx.sessionId))!;
+      const raw = String((await body(req)).text ?? '').replace(/\s+/g, ' ').trim().slice(0, ANSWER_MAX);
+
+      if (raw.length < ANSWER_MIN) {
+        return json(res, { ok: false, message: 'The room is still waiting.' }, 400);
+      }
+
+      /*
+       * This is going straight onto a public rail, so it goes through exactly
+       * the same screening as chat. Anonymous text shown to strangers gets one
+       * standard, not a lenient one because it arrived through a nicer form.
+       */
+      const verdict = screen(raw);
+      if (!verdict.ok) return json(res, { ok: false, message: decline(verdict.reason) });
+
+      const already = (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered');
+      const reading = readAnswer(sess.seed, raw);
+
+      if (!already) {
+        await repo.appendExperienceEvent(ctx.sessionId, 'answered', {
+          text: raw, tone: reading.tone, fragment: reading.fragment,
+        });
+
+        /*
+         * PIPE IT TO THE WORLD. It enters the rail as an ordinary utterance,
+         * same handle pool as everyone else, so the next visitor cannot tell
+         * an answer from a chat line from a bot — and later it becomes
+         * material for somebody else's recital. That is the loop closing.
+         */
+        const u: Utterance = {
+          utteranceId: `a_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+          sessionId: ctx.sessionId,
+          handle: handleFor(ctx.sessionId, HANDLE_STEMS),
+          text: raw,
+          tick: currentTick(),
+          seq: ++voiceSeq,
+        };
+        liveVoices.push(u);
+        while (liveVoices.length > LIVE_KEEP) liveVoices.shift();
+
+        // so the recital can quote it to a stranger later, like any other line
+        await repo.appendExperienceEvent(ctx.sessionId, 'said', { text: raw, handle: u.handle });
+      }
+
+      res.setHeader('set-cookie', ctx.setCookies);
+      return json(res, { ok: true, message: reading.ack });
     }
 
     /* ---- you commit to a number ---- */
