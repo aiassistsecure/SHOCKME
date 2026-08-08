@@ -160,6 +160,28 @@ h1{
    extension, or an OS setting, the chair must still be visible. Relying on
    an animation's end state to reveal something is how it vanished before. */
 .chair.late{opacity:1;animation:arrive 1.1s cubic-bezier(.16,1,.3,1) forwards}
+/*
+ * fadeup — the reveal used by every room in the second half.
+ *
+ * IT WAS NEVER DEFINED. Five rules referenced it (.reveal, .ledgerrow,
+ * .quote, .inventory li, .darkline), every one of them pairs it with
+ * opacity:0, and an undefined animation simply does not run — so the opacity
+ * stayed at zero and THE ENTIRE SECOND HALF RENDERED BLANK. The ledger drew
+ * six correct numbers into an invisible table, then offered "That cannot be
+ * right" as a response to an empty screen. M: "fix some sequences like ledger
+ * where it doesnt show anything and then the users pick from options that
+ * dont make sense but not in a good way." Exactly right, and both halves of
+ * that sentence were the same missing keyframe.
+ *
+ * Identical shape to the hidden chair: something is hidden, and the thing
+ * meant to un-hide it never runs. See chairs.test.ts / latechair.test.ts, and
+ * animations.test.ts which now fails the build if a referenced animation has
+ * no @keyframes.
+ */
+@keyframes fadeup{
+  from{opacity:0;transform:translateY(8px)}
+  to{opacity:1;transform:none}
+}
 @keyframes arrive{
   0%{opacity:0;transform:translateY(-9px) scale(.9)}
   60%{opacity:1;transform:translateY(2px) scale(1.02)}
