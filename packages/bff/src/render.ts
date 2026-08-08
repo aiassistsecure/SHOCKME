@@ -11,6 +11,7 @@
  */
 
 import { ANSWER_PROMPT, ANSWER_PLACEHOLDER, ANSWER_MAX } from '../../engine/src/experiences/answer.ts';
+import { Rng } from '../../engine/src/rng.ts';
 import type { Variant } from '../../engine/src/experiences/floorplan.ts';
 import type { Facts, SecondHalf } from '../../engine/src/experiences/second-half.ts';
 import { comparisonLine, fmtDuration, missedRooms, ROOM_NAMES, TOTAL_ROOMS } from '../../engine/src/experiences/second-half.ts';
@@ -475,6 +476,13 @@ body.lightsout .wrap{filter:brightness(.82)}
   transition:color .25s,border-color .25s}
 .jar a:hover{color:var(--phos-hot);border-color:var(--phos-hot)}
 .jarline{margin-top:1rem}
+/* tiny, as asked. it should read like a plaque nobody re-reads. */
+.madeby{margin-top:.9rem;font-size:.63rem;line-height:1.6;color:var(--phos-dim);
+  letter-spacing:.05em;opacity:.75;transition:opacity .3s}
+.madeby:hover{opacity:1}
+.madeby .hrt{color:var(--bleed-r)}
+.madeby .quip{font-style:italic}
+.madeby a{border-bottom:1px dotted var(--phos-dim)}
 .sub label{display:block;font-size:.72rem;letter-spacing:.05em;color:var(--phos);
   margin-bottom:.5rem;text-transform:none}
 .subrow{display:flex;gap:.4rem;align-items:stretch;max-width:340px}
@@ -592,7 +600,7 @@ export interface RoomView {
   };
 }
 
-function chatRail(lines: ObservedLine[]): string {
+function chatRail(lines: ObservedLine[], credit: string): string {
   const items = lines.slice(-9).map((l, i) => `
     <div class="line${l.diverged ? ' div' : ''}" style="animation-delay:${0.1 + i * 0.07}s">
       <div class="who">${esc(l.handle)}</div>
@@ -610,7 +618,7 @@ function chatRail(lines: ObservedLine[]): string {
       <div class="saynote" id="saynote"></div>
     </div>
 
-    ${footer()}
+    ${footer(credit)}
   </aside>`;
 }
 
@@ -631,7 +639,27 @@ function chatRail(lines: ObservedLine[]): string {
  * "Join our newsletter!" module would be the one honest-to-god lie on the
  * page — the only moment SHOCKME stopped being a room and became a funnel.
  */
-function footer(): string {
+/*
+ * THE CREDIT. Tiny, bottom of everything, and it varies per visitor like
+ * everything else here does — a fixed byline would be the only thing on the
+ * site that is the same for everybody.
+ */
+const CREDITS = [
+  'only one of them needs to sleep.',
+  'the human did the typing.',
+  'the ghosts work nights. all of them.',
+  'two of us do not show up in the analytics.',
+  'the human is the one who leaves.',
+  'one of the ghosts wrote this line and will not say which.',
+  'staffing levels are correct.',
+  'the human is outnumbered.',
+];
+
+export function creditFor(seed: string): string {
+  return new Rng(seed, 'credit').pick(CREDITS);
+}
+
+function footer(credit: string): string {
   return `
   <div class="jar">
     <form class="sub" id="subform" autocomplete="on">
@@ -648,6 +676,11 @@ function footer(): string {
       this runs on a machine somebody pays for.<br>
       <a href="https://cash.app/$interchained" target="_blank" rel="noopener noreferrer">
         <span class="amt">$interchained</span></a>
+    </div>
+    <div class="madeby">
+      made with <span class="hrt">&hearts;</span> by two ghosts and a human &middot;
+      <span class="quip">${esc(credit)}</span><br>
+      powered by <a href="https://interchained.io" target="_blank" rel="noopener noreferrer">interchained</a>
     </div>
   </div>`;
 }
@@ -951,7 +984,7 @@ export function renderRoom(v: RoomView): string {
   ${main}
   ${choices}
 </main></div>
-${chatRail(v.lines)}
+${chatRail(v.lines, creditFor(v.resolved.greeting + String(v.visitCount)))}
 <script type="module">
 ${FOOTER_JS}
 const NUDGES = ${JSON.stringify(v.nudges)};
@@ -1334,7 +1367,7 @@ export function renderArtifact(v: ArtifactView): string {
     <a class="act primary" href="/again">Go in</a>
   </div>
 
-  ${footer()}
+  ${footer(creditFor(v.token))}
 </main></div>
 <script type="module">
 ${FOOTER_JS}
