@@ -136,8 +136,30 @@ h1{
 }
 .aside.show{opacity:.92;transform:none}
 
-/* a chair that arrives late, while you are looking at it */
-.chair.late{animation:arrive 1.1s cubic-bezier(.16,1,.3,1) forwards}
+/*
+ * A CHAIR THAT ARRIVES LATE — AND ITS STATE LIVES IN CLASSES, NEVER INLINE.
+ *
+ * This was an inline style="opacity:0;animation:none" on the element, which
+ * produced a chair that could never become visible:
+ *
+ *   .chair sets opacity:0 and relies on its entrance animation to reveal it.
+ *   Clearing the inline opacity therefore fell back to 0, not to 1 — and the
+ *   inline animation:none outranks .chair.late, so arrive never played.
+ *
+ * So the fifth chair sat in the DOM, invisible, forever. Every NUMBER was
+ * right — 4 visible, you counted 4, "correct at the time", difference 1 — the
+ * room was simply describing a chair it had failed to draw. M: "it says 4
+ * chairs I say 4 chairs there are 4 chairs and it says difference 1. There
+ * must be a hidden chair." There was.
+ *
+ * .pending holds it back; removing .pending lets it arrive. Same
+ * specificity, no inline overrides, nothing to outrank.
+ */
+.chair.pending{opacity:0;animation:none}
+/* opacity:1 is a FLOOR — if animations are disabled by the browser, an
+   extension, or an OS setting, the chair must still be visible. Relying on
+   an animation's end state to reveal something is how it vanished before. */
+.chair.late{opacity:1;animation:arrive 1.1s cubic-bezier(.16,1,.3,1) forwards}
 @keyframes arrive{
   0%{opacity:0;transform:translateY(-9px) scale(.9)}
   60%{opacity:1;transform:translateY(2px) scale(1.02)}
@@ -502,7 +524,7 @@ export function renderRoom(v: RoomView): string {
   const chairsBefore = Math.max(1, finalChairs - 1);   // one is held back
   const chairs = Array.from({ length: finalChairs }, (_, i) =>
     i === finalChairs - 1
-      ? `<div class="chair" id="latechair" style="opacity:0;animation:none"></div>`
+      ? `<div class="chair pending" id="latechair"></div>`
       : `<div class="chair" style="animation-delay:${0.5 + i * 0.09}s"></div>`,
   ).join('');
 
@@ -816,7 +838,7 @@ const cf = document.getElementById('countform');
 
 function landLateChair(guess) {
   if (late) {
-    late.style.opacity = '';
+    late.classList.remove('pending');   // never touch .style — see .chair.pending
     late.classList.add('late');
   }
   const df = document.getElementById('chairdiff');
@@ -875,7 +897,7 @@ if (cf) {
   });
 } else if (late) {
   // any other scene showing chairs keeps the original timed arrival
-  setTimeout(() => { late.style.opacity = ''; late.classList.add('late'); }, NUDGE_LATE_CHAIR);
+  setTimeout(() => { late.classList.remove('pending'); late.classList.add('late'); }, NUDGE_LATE_CHAIR);
 }
 
 // 3. the room notices you doing nothing, and escalates gently
