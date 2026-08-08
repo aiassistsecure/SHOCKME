@@ -11,6 +11,7 @@
  */
 
 import { ANSWER_PROMPT, ANSWER_PLACEHOLDER, ANSWER_MAX } from '../../engine/src/experiences/answer.ts';
+import type { Variant } from '../../engine/src/experiences/floorplan.ts';
 import type { Facts, SecondHalf } from '../../engine/src/experiences/second-half.ts';
 import { comparisonLine, fmtDuration, missedRooms, ROOM_NAMES, TOTAL_ROOMS } from '../../engine/src/experiences/second-half.ts';
 import type { Resolved } from '../../engine/src/experiences/waiting-room.ts';
@@ -217,6 +218,30 @@ h1{
 
 /* --- the count, set against itself --- */
 .lede.dim{color:var(--phos-dim)}
+.lede.hot{color:var(--phos-hot)}
+
+/* --- the office --- */
+.desk{width:150px;height:52px;border:1px solid var(--phos-dim);border-bottom-width:3px;
+  margin-bottom:1.6rem;position:relative;animation:fadeup .9s both}
+.desk::after{content:"";position:absolute;left:14px;top:12px;width:44px;height:26px;
+  border:1px solid var(--line)}
+
+/*
+ * PER-VISITOR SKINS. Subtle on purpose: none of these change what anything
+ * MEANS. They exist so two people comparing screenshots find something they
+ * cannot quite account for.
+ */
+body.sk-unlit{background:#080502}
+body.sk-unlit .wrap{filter:brightness(.88)}
+body.sk-borderless .chair,body.sk-borderless .tally,body.sk-borderless .ledger .ledgerrow{border-color:transparent}
+body.sk-borderless .chair{box-shadow:inset 0 -2px 0 var(--phos-dim)}
+body.sk-tight .wrap{letter-spacing:-.01em}
+body.sk-tight .objects{gap:6px}
+body.sk-wide .objects{gap:28px}
+body.sk-wide .wrap{letter-spacing:.04em}
+body.ch-low .chair{height:30px}
+body.ch-thin .chair{width:20px}
+body.hum::after{animation-duration:9s}
 
 /* --- the one thing the room asks for --- */
 .askform{max-width:460px;margin-bottom:2rem;border-top:1px solid var(--line);padding-top:1.2rem}
@@ -552,6 +577,9 @@ export interface RoomView {
   sting?: string;
   /** True once the visitor has written their answer. Gates the exit. */
   answered?: boolean;
+  /** Per-visitor visual differences. Never announced. */
+  variant: Variant;
+  officeLines?: readonly string[];
   /** A line that could only exist because of an earlier choice. */
   echo?: string;
   artifact?: {
@@ -797,6 +825,17 @@ export function renderRoom(v: RoomView): string {
         <p class="darkline hot" style="animation-delay:${0.5 + v.secondHalf.darkLines.length * 0.9}s">
           There are ${v.facts!.population} of us in here.</p>
       </div>`;
+  } else if (v.renderer === 'office') {
+    /* The room most visitors never reach. Its job is to be missing from
+       somebody else's artifact. */
+    const f = v.facts!;
+    main = `
+      <div class="office r d3">
+        <div class="desk"></div>
+        ${(v.officeLines ?? []).map((t, i) =>
+          `<p class="lede" style="animation-delay:${0.4 + i * 0.5}s">${esc(t)}</p>`).join('')}
+        <p class="lede hot">The form says: visitor ${f.visitorNumber}. Present. Counted.</p>
+      </div>`;
   } else if (v.renderer === 'threshold') {
     /*
      * THE ONE PLACE THE ROOM ASKS YOU FOR SOMETHING.
@@ -916,6 +955,8 @@ ${chatRail(v.lines)}
 <script type="module">
 ${FOOTER_JS}
 const NUDGES = ${JSON.stringify(v.nudges)};
+document.body.classList.add('sk-' + ${JSON.stringify(v.variant.skin)}, 'ch-' + ${JSON.stringify(v.variant.chairs)});
+if (${v.variant.hum ? 'true' : 'false'}) document.body.classList.add('hum');
 if (document.getElementById('darkroom')) document.body.classList.add('lightsout');
 const NUDGE_LATE_CHAIR = ${v.lateChairAfterMs};
 const CHAIRS_FINAL = ${finalChairs};

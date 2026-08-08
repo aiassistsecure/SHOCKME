@@ -20,6 +20,8 @@
 import { renderRoom } from '../src/render.ts';
 import { resolveRoom } from '../../engine/src/experiences/waiting-room.ts';
 import { resolveSecondHalf } from '../../engine/src/experiences/second-half.ts';
+import { planFor } from '../../engine/src/experiences/floorplan.ts';
+import { SCENES } from '../../engine/src/experiences/waiting-room.ts';
 
 let fail = 0;
 const bad = (m: string) => { fail++; if (fail < 6) console.log('  ' + m); };
@@ -32,7 +34,7 @@ for (let i = 0; i < 60; i++) {
     choices: [{ id: 'agree', label: 'Agree with the room' }],
     resolved, lines: [], visitCount: 0, origin: 'http://x', nudges: [],
     lateChairAfterMs: resolved.lateChairAfterMs,
-    secondHalf: resolveSecondHalf(seed),
+    secondHalf: resolveSecondHalf(seed), variant: planFor(seed, SCENES).variant,
   } as Parameters<typeof renderRoom>[0]);
 
   const tag = /<div class="[^"]*"[^>]*id="latechair"[^>]*>/.exec(html)?.[0];

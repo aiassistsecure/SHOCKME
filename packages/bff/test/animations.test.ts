@@ -12,12 +12,14 @@
 import { renderRoom } from '../src/render.ts';
 import { resolveRoom } from '../../engine/src/experiences/waiting-room.ts';
 import { resolveSecondHalf } from '../../engine/src/experiences/second-half.ts';
+import { planFor } from '../../engine/src/experiences/floorplan.ts';
+import { SCENES } from '../../engine/src/experiences/waiting-room.ts';
 
 const resolved = resolveRoom('anim', 0);
 const html = renderRoom({
   sceneId: 'counting', renderer: 'counting', greeting: 'x', body: '',
   choices: [], resolved, lines: [], visitCount: 0, origin: 'http://x', nudges: [],
-  lateChairAfterMs: resolved.lateChairAfterMs, secondHalf: resolveSecondHalf('anim'),
+  lateChairAfterMs: resolved.lateChairAfterMs, secondHalf: resolveSecondHalf('anim'), variant: planFor('anim', SCENES).variant,
 } as Parameters<typeof renderRoom>[0]);
 
 // Strip CSS/JS comments first — prose inside them mentions "animation:" and

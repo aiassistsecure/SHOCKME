@@ -33,6 +33,7 @@ import { adminEnabled, tokenOk, gather, renderAdmin, ADMIN_TOKEN } from './admin
 import { draw, subjectFor, type Drawing } from '../../engine/src/drawing.ts';
 import { stingFor, MAX_STINGS } from '../../engine/src/experiences/sting.ts';
 import { echoFor, recognitionFor } from '../../engine/src/experiences/consequence.ts';
+import { planFor, sceneIn, OFFICE_LINES, type Floorplan } from '../../engine/src/experiences/floorplan.ts';
 import {
   readAnswer, ANSWER_MIN, ANSWER_MAX, ANSWER_PROMPT, ANSWER_PLACEHOLDER,
 } from '../../engine/src/experiences/answer.ts';
@@ -210,6 +211,7 @@ const BODIES: Record<string, string> = {
   button: 'There is a button. It would prefer you did not.',
   // the second half — see engine/src/experiences/second-half.ts
   corridor: '',
+  office: '',
   ledger: 'The room has been keeping records. It would like to show you yours.',
   recital: '',
   inventory: '',
@@ -303,12 +305,19 @@ async function buildFacts(
 async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
   const s = (await repo.getSession(ctx.sessionId))!;
   const v = await repo.getVisitor(ctx.visitorId);
-  const scene = sceneById(s.currentSceneId) ?? sceneById(INITIAL_SCENE)!;
+  /*
+   * THE GRAPH IS NO LONGER A CONSTANT. Each visitor's floorplan is derived
+   * from their seed, so room order, branch access, choice count and the
+   * existence of the office all differ. Falls back to the canonical scene if
+   * a session is mid-flight in a room their (re-derived) plan pruned.
+   */
+  const plan = planFor(s.seed, SCENES);
+  const scene = sceneIn(plan, s.currentSceneId) ?? sceneById(s.currentSceneId) ?? sceneById(INITIAL_SCENE)!;
   const resolved = resolveRoom(s.seed, v?.visitCount ?? 0);   // seed used HERE, server-side
   const tick = currentTick();
   const state = await repo.getSessionState(ctx.sessionId);
 
-  const SECOND_HALF = new Set(['corridor', 'ledger', 'recital', 'inventory', 'dark', 'threshold', 'end']);
+  const SECOND_HALF = new Set(['corridor', 'ledger', 'recital', 'inventory', 'dark', 'threshold', 'office', 'end']);
   const facts = SECOND_HALF.has(scene.id) ? await buildFacts(ctx, s, resolved) : undefined;
   const secondHalf = resolveSecondHalf(s.seed);
 
@@ -453,9 +462,27 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
           if (f.roomsSeen.includes('dark') && !f.pressed) return 'you stood in the dark and touched nothing. the room noted the restraint.';
           if (f.roomsSeen.includes('dark')) return 'you were in the room when the lights went out. so was everybody else.';
           if (f.roomsSeen.includes('recital')) return 'you were read something a stranger said. it is still theirs.';
-          if (f.yourQuote) return `you said ${JSON.stringify(f.yourQuote)}. the room has not put it down.`;
+          /*
+           * The threshold answer is ALSO written as a 'said' event so the
+           * recital can quote it to strangers — which means yourQuote is the
+           * answer for anyone who reached the end, and printing both put the
+           * same sentence in the artifact twice. Only mention it here if they
+           * spoke somewhere OTHER than the threshold.
+           */
+          const answeredText = String((evs.find((e) => e.kind === 'answered')?.payload as Record<string, unknown>)?.text ?? '');
+          if (f.yourQuote && f.yourQuote !== answeredText) {
+            return `you said \u201C${f.yourQuote}\u201D. the room has not put it down.`;
+          }
           return 'you went through without saying anything. that is also on the record.';
         })(),
+        /*
+         * The office is deliberately NOT in ALL_ROOM_IDS. Listing it among the
+         * rooms you missed would advertise a secret to everyone who does not
+         * have one — so it is invisible unless you actually found it.
+         */
+        ...(evs.some((e) => e.kind === 'choice' &&
+              (e.payload as Record<string, unknown>)?.from === 'office')
+          ? ['you found the office. most visitors are not given one.'] : []),
         (() => {
           const seen = facts?.roomsSeen ?? [];
           const missed = missedRooms(seen);
@@ -511,6 +538,8 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     secondHalf,
     sting,
     echo,
+    variant: plan.variant,
+    officeLines: plan.hasOffice ? OFFICE_LINES : undefined,
     answered: (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered'),
   });
 }
@@ -526,6 +555,7 @@ function titleFor(sceneId: string, r: ReturnType<typeof resolveRoom>): string {
     case 'inventory': return 'What the room has.';
     case 'dark': return 'The lights go out.';
     case 'threshold': return 'The threshold.';
+    case 'office': return 'An office.';
     case 'counting': return r.anomaly.line;
     case 'button': return 'Ah.';
     default: return 'The room.';
@@ -599,7 +629,7 @@ const server = createServer(async (req, res) => {
       const ctx = await resolveCtx(req);
       const { choiceId } = await body(req);
       const s = (await repo.getSession(ctx.sessionId))!;
-      const scene = sceneById(s.currentSceneId)!;
+      const scene = sceneIn(planFor(s.seed, SCENES), s.currentSceneId) ?? sceneById(s.currentSceneId)!;
       const choice = scene.choices.find((c) => c.id === choiceId);
       if (!choice) return json(res, { error: 'no such choice' }, 400);
 
