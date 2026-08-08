@@ -21,6 +21,18 @@ export const COLLECTIONS = [
   'encounters', 'artifacts', 'broadcasts', 'experience_versions',
   // Opt-in only, and deliberately not joined to any of the above.
   'subscribers',
+  /*
+   * Registered first-party properties, and the pixel's append-only stream.
+   *
+   * These were MISSING from this list until the status audit caught it. The
+   * pixel worked in testing anyway, because put() creates a collection on
+   * demand and the local database already existed — so the bug was invisible
+   * on the machine where it was written. On a FRESH deploy, ensureDatabase()
+   * would not have created them. Classic install-only bug: passes everywhere
+   * except the one place nobody tests, which is a brand new box.
+   */
+  'sites',
+  'pixel_events',
 ] as const;
 
 /* ------------------------------------------------------------------ */
