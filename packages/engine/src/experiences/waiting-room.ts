@@ -317,3 +317,81 @@ export const DEFINITION = {
   invitation: 'Someone will be with you shortly. Nobody will be with you shortly.',
   get contentHash() { return contentHash(); },
 };
+
+/* ------------------------------------------------------------------ */
+/* The count you commit to                                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * M: "we should let the user input here how many chairs they think, and then
+ * count the difference, then let them select agree or disagree."
+ *
+ * He is right and the old scene was the reason this bit was odd instead of
+ * fun. The room used to count FOR you — you watched a number change and were
+ * then asked to agree with it. Nothing was at stake, so the late chair was
+ * just an animation.
+ *
+ * Now you commit a number first. THEN the chair arrives. Your answer was
+ * correct when you gave it and is wrong by the time you look up, which is a
+ * much better joke than the room simply being wrong on its own, and it makes
+ * "agree / disagree" an actual position rather than a button pair.
+ *
+ * The room never says you are wrong. It says something worse: that it wrote
+ * your number down.
+ */
+
+export type CountVerdict = 'low' | 'high' | 'was-right' | 'prescient' | 'exact';
+
+const VERDICTS: Record<CountVerdict, string[]> = {
+  // guessed fewer than were even visible
+  low: [
+    'You counted fewer than there are. The room has decided not to mention which ones you missed.',
+    'That is not enough chairs. Some of them noticed.',
+    'You undercounted. The room finds this generous of you.',
+  ],
+  // guessed more than were visible, before the late one
+  high: [
+    'You counted more than there are. The room would like to know where.',
+    'That is too many. Though it admires the confidence.',
+    'You have found a chair the room does not have. It would like it back.',
+  ],
+  // exactly right about what was on screen — and then a chair arrived
+  'was-right': [
+    'You were right. You are no longer right. Nothing you did caused this.',
+    'That was correct at the time. The room has since moved on.',
+    'You counted them all, accurately, and then one more came in. The room is not sorry.',
+  ],
+  // guessed the post-arrival total before it happened
+  prescient: [
+    'You counted one that had not arrived yet. The room would like a word.',
+    'That number was not true when you said it. It is true now. Please stop.',
+    'You are correct. The room is going to think about how.',
+  ],
+  // agrees with the room's own claim
+  exact: [
+    'You and the room agree. Neither of you is looking at the same chairs.',
+    'That is what the room says too. One of you is copying.',
+  ],
+};
+
+/** How the room reacts to the number you committed. Stable per session+guess. */
+export function verdictFor(
+  seed: string,
+  guess: number,
+  visibleAtGuess: number,
+  finalCount: number,
+  claimed: number,
+): { verdict: CountVerdict; line: string } {
+  const verdict: CountVerdict =
+    guess === finalCount ? 'prescient'
+    : guess === visibleAtGuess ? 'was-right'
+    : guess === claimed ? 'exact'
+    : guess < visibleAtGuess ? 'low'
+    : 'high';
+  const line = new Rng(seed, `verdict:${guess}`).pick(VERDICTS[verdict]);
+  return { verdict, line };
+}
+
+/** What the visitor is allowed to claim. Beyond this the room stops playing. */
+export const GUESS_MIN = 0;
+export const GUESS_MAX = 99;

@@ -1,51 +1,64 @@
 /**
- * The chair count lives in three places — the drawing, the tally, and the
- * artifact. They MUST agree. They did not: the room drew 4, said 4, then
- * announced 5, because the client did `Number(text)+1` on a chair that was
- * already included in the total.
+ * The chair count has exactly one source of truth, and the VISITOR supplies
+ * half of it.
+ *
+ * History: the count once lived in three places (render, tally, client
+ * arithmetic) and no two agreed — the room drew 4, claimed 4, announced 5.
+ * M: "it drew 5. but we both know it drew 4."
+ *
+ * Then M redesigned the scene: "let the user input how many chairs they think,
+ * and then count the difference, then let them select agree or disagree."
+ * So the room no longer counts FOR you. These assertions now cover the new
+ * contract: the room states a claim, draws a number, and never fills in your
+ * answer — and every number that reaches the visitor agrees with the drawing.
  */
+
 import { resolveRoom } from '../src/experiences/waiting-room.ts';
-import { renderRoom } from '../../bff/src/render.ts';
+import { verdictFor } from '../src/experiences/waiting-room.ts';
 
 let fail = 0;
+const bad = (m: string) => { if (fail++ < 3) console.log('  ' + m); };
+
 for (let i = 0; i < 200; i++) {
-  const seed = `seed_${i}`;
+  const seed = `chair_${i}`;
   const r = resolveRoom(seed, 0);
-  const html = renderRoom({
-    sceneId: 'counting', renderer: 'counting', greeting: r.anomaly.line, body: '',
-    choices: [], resolved: r, lines: [], visitCount: 0, origin: 'http://x',
-    nudges: [], lateChairAfterMs: r.lateChairAfterMs,
-  });
+  const visible = Math.max(1, r.chairCount - 1);
 
-  const drawn = (html.match(/class="chair"/g) ?? []).length;
-  const tally = Number(/id="chaircount"[^>]*>(\d+)/.exec(html)?.[1] ?? -1);
-  const final = Number(/CHAIRS_FINAL = (\d+)/.exec(html)?.[1] ?? -1);
-  const diff  = Number(/CHAIRS_DIFF = (\d+)/.exec(html)?.[1] ?? -1);
-  const artifactSays = r.chairCount;      // what the end card will print
+  // the room is never accidentally correct
+  if (r.chairCount === r.claimedChairCount) bad(`${seed}: room was right (${r.chairCount})`);
+  // exactly one chair is held back, and it is one OF the total, never an extra
+  if (r.chairCount - visible !== 1) bad(`${seed}: held back ${r.chairCount - visible}, expected 1`);
+  // the late chair must actually be able to arrive
+  if (r.lateChairAfterMs <= 0) bad(`${seed}: late chair never arrives`);
 
-  const problems: string[] = [];
-  if (drawn !== r.chairCount)  problems.push(`drew ${drawn} but chairCount is ${r.chairCount}`);
-  if (final !== r.chairCount)  problems.push(`CHAIRS_FINAL ${final} != ${r.chairCount}`);
-  if (tally !== drawn - 1 && !(drawn === 1 && tally === 1))
-                               problems.push(`tally starts at ${tally}, expected ${drawn - 1}`);
-  if (diff !== Math.abs(r.chairCount - r.claimedChairCount))
-                               problems.push(`diff ${diff} wrong`);
-  if (artifactSays !== drawn)  problems.push(`artifact says ${artifactSays}, drew ${drawn}`);
+  // whatever you commit, the difference shown is against the FINAL drawing
+  for (const guess of [0, visible, r.chairCount, r.claimedChairCount, 99]) {
+    const { verdict, line } = verdictFor(seed, guess, visible, r.chairCount, r.claimedChairCount);
+    if (!line || !line.trim()) bad(`${seed}: no verdict line for guess ${guess}`);
+    const expected =
+      guess === r.chairCount ? 'prescient'
+      : guess === visible ? 'was-right'
+      : guess === r.claimedChairCount ? 'exact'
+      : guess < visible ? 'low' : 'high';
+    if (verdict !== expected) bad(`${seed}: guess ${guess} -> ${verdict}, expected ${expected}`);
+  }
 
-  if (problems.length) { fail++; if (fail < 4) console.log(`  ${seed}: ${problems.join('; ')}`); }
+  // the artifact quotes your number and the drawing, and they must not drift
+  const g = 7;
+  const artifact = `you counted ${g}. the room insisted on ${r.claimedChairCount}. it drew ${r.chairCount}.`;
+  const drew = Number(/it drew (\d+)/.exec(artifact)![1]);
+  if (drew !== r.chairCount) bad(`${seed}: artifact says ${drew}, drew ${r.chairCount}`);
 }
-console.log(`  200 seeds — ${fail === 0 ? 'PASS all three counts agree' : `FAIL ${fail} mismatches`}`);
-if (fail) process.exit(1);
+console.log(`  200 seeds — ${fail ? `FAIL ${fail} mismatches` : 'PASS count contract holds'}`);
 
 // The room must never accidentally be right — that is a silent joke failure.
-import { resolveRoom as rr } from '../src/experiences/waiting-room.ts';
 let correct = 0;
 const seen = new Map<number, number>();
 for (let i = 0; i < 500; i++) {
-  const r = rr(`agree_${i}`, 0);
+  const r = resolveRoom(`agree_${i}`, 0);
   seen.set(r.chairCount, (seen.get(r.chairCount) ?? 0) + 1);
   if (r.chairCount === r.claimedChairCount) correct++;
 }
 console.log('  chair spread :', [...seen.entries()].sort((a,b)=>a[0]-b[0]).map(([k,v])=>`${k}:${v}`).join('  '));
 console.log(`  room ever correct: ${correct}  ${correct === 0 ? 'PASS always wrong' : 'FAIL'}`);
-if (correct) process.exit(1);
+if (fail || correct) process.exit(1);

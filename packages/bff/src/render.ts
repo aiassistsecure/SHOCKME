@@ -174,6 +174,26 @@ h1{
   padding:.75rem 1rem;border-bottom:1px solid rgba(42,35,24,.7);font-size:.9rem;color:var(--phos-dim)}
 .tallyrow:last-child{border-bottom:0}
 .tallyrow b{font-family:var(--crt);font-size:2rem;line-height:1;color:var(--phos-hot)}
+.guessing{display:flex;align-items:center;gap:.5rem}
+.step{width:38px;height:38px;flex:0 0 auto;font:inherit;font-size:1.3rem;line-height:1;
+  background:transparent;color:var(--phos-dim);border:1px solid var(--line);cursor:pointer;
+  transition:color .15s,border-color .15s,transform .1s}
+.step:hover{color:var(--phos-hot);border-color:var(--phos)}
+.step:active{transform:scale(.9)}
+#guess{width:82px;background:transparent;border:0;border-bottom:1px solid var(--line);
+  font-family:var(--crt);font-size:2rem;line-height:1;color:var(--phos-hot);text-align:center;
+  padding:0 0 2px;outline:none;caret-color:var(--phos-hot);
+  text-shadow:0 0 12px rgba(255,176,58,.35)}
+#guess::placeholder{color:var(--phos-dim);text-shadow:none}
+#guess:focus{border-bottom-color:var(--phos-hot)}
+#guess::-webkit-outer-spin-button,#guess::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+#guess[type=number]{-moz-appearance:textfield}
+.commit{display:block;width:100%;padding:.85rem;font:inherit;letter-spacing:.14em;
+  text-transform:uppercase;font-size:.72rem;background:transparent;color:var(--phos);
+  border:0;border-top:1px solid var(--line);cursor:pointer;transition:background .18s,color .18s}
+.commit:hover:not(:disabled){background:var(--phos);color:#120b04}
+.commit:disabled{color:var(--phos-dim);cursor:default}
+.choice:disabled{opacity:.32;cursor:default;pointer-events:none}
 .tallyrow.disagree b{color:var(--bleed-r);text-shadow:0 0 14px rgba(255,77,61,.45)}
 
 /* --- the notice --- */
@@ -442,14 +462,30 @@ export function renderRoom(v: RoomView): string {
     main = `
       <div class="notice r d3" id="notice">${esc(v.noticeText ?? 'PLEASE WAIT.')}</div>`;
   } else if (v.renderer === 'counting') {
+    /*
+     * YOU COUNT. NOT THE ROOM.
+     *
+     * The tally no longer fills itself in. You type a number, you commit to
+     * it, and only then does the last chair arrive — so the answer you gave
+     * was correct when you gave it. "Agree / disagree" stays disabled until
+     * you have a position to agree from.
+     */
     main = `
       <div class="objects r d3">${chairs}</div>
-      <div class="tally r d4">
+      <form class="tally r d4" id="countform" autocomplete="off">
         <div class="tallyrow"><span>the room says</span><b>${v.resolved.claimedChairCount}</b></div>
-        <div class="tallyrow"><span>you have counted</span><b id="chaircount">${chairsBefore}</b></div>
-        <div class="tallyrow disagree"><span>difference</span><b id="chairdiff">${Math.abs(chairsBefore - v.resolved.claimedChairCount)}</b></div>
-      </div>
-      <p class="lede r d4">The room is not going to change its mind.</p>`;
+        <div class="tallyrow"><span>you count</span>
+          <span class="guessing">
+            <button type="button" class="step" id="stepdown" aria-label="fewer">&minus;</button>
+            <input id="guess" name="guess" type="number" inputmode="numeric"
+                   min="0" max="99" step="1" placeholder="?" aria-label="how many chairs you count">
+            <button type="button" class="step" id="stepup" aria-label="more">+</button>
+          </span>
+        </div>
+        <div class="tallyrow disagree" id="diffrow" hidden><span>difference</span><b id="chairdiff">0</b></div>
+        <button class="commit" id="commit" type="submit">That is my count</button>
+      </form>
+      <p class="lede r d4" id="verdict">Count them yourself. The room has already made up its mind.</p>`;
   } else if (v.renderer === 'button') {
     main = `
       <div class="r d3">
@@ -491,7 +527,7 @@ export function renderRoom(v: RoomView): string {
 
   const choices = v.choices.length ? `
     <div class="choices r d5">
-      ${v.choices.map((c) => `<button class="choice" data-choice="${esc(c.id)}"${c.hover ? ` data-hover="${esc(c.hover)}"` : ''}>
+      ${v.choices.map((c) => `<button class="choice" data-choice="${esc(c.id)}"${v.renderer === 'counting' ? ' disabled' : ''}${c.hover ? ` data-hover="${esc(c.hover)}"` : ''}>
         <span>${esc(c.label)}</span><span class="arrow">&rarr;</span></button>`).join('')}
     </div>` : '';
 
@@ -638,18 +674,78 @@ document.querySelectorAll('[data-hover]').forEach((el) => {
   el.addEventListener('touchstart', show, { passive: true });
 });
 
-// 2. one more chair arrives while you are looking at the room
+// 2. THE LATE CHAIR WAITS FOR YOU TO COMMIT.
+//
+// It used to arrive on a timer whether or not you were paying attention, which
+// made it wallpaper. Now it arrives ~1.4s AFTER you write your number down, so
+// the count you gave was true when you gave it. The room does not tell you you
+// are wrong; it just quietly stops being the room you counted.
 const late = document.getElementById('latechair');
-if (late) setTimeout(() => {
-  late.style.opacity = '';
-  late.classList.add('late');
-  // ASSIGN the server's exact numbers. Never Number(text)+1 — that produced
-  // a third, wrong count that disagreed with both the drawing and the artifact.
-  const c = document.getElementById('chaircount');
-  if (c) { c.textContent = String(CHAIRS_FINAL); c.style.color = 'var(--phos-hot)'; }
+const cf = document.getElementById('countform');
+
+function landLateChair(guess) {
+  if (late) {
+    late.style.opacity = '';
+    late.classList.add('late');
+  }
   const df = document.getElementById('chairdiff');
-  if (df) df.textContent = String(CHAIRS_DIFF);
-}, NUDGE_LATE_CHAIR);
+  const row = document.getElementById('diffrow');
+  if (df && row) {
+    row.hidden = false;
+    // Difference is against YOUR number now, not the room's running tally.
+    df.textContent = String(Math.abs(guess - CHAIRS_FINAL));
+  }
+}
+
+if (cf) {
+  const gi = document.getElementById('guess');
+  const commit = document.getElementById('commit');
+  const step = (d) => {
+    const n = Math.max(0, Math.min(99, (parseInt(gi.value, 10) || 0) + d));
+    gi.value = String(n);
+    gi.dispatchEvent(new Event('input'));
+  };
+  document.getElementById('stepup').addEventListener('click', () => step(1));
+  document.getElementById('stepdown').addEventListener('click', () => step(-1));
+  gi.addEventListener('input', () => { commit.disabled = gi.value === ''; });
+  commit.disabled = true;
+  setTimeout(() => gi.focus({ preventScroll: true }), 900);
+
+  cf.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const guess = parseInt(gi.value, 10);
+    if (!Number.isInteger(guess)) return;
+
+    gi.readOnly = true;
+    commit.disabled = true;
+    commit.textContent = 'Written down';
+    document.getElementById('stepup').disabled = true;
+    document.getElementById('stepdown').disabled = true;
+
+    let line = '';
+    try {
+      const r = await fetch('/bff/count', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ guess }),
+      });
+      line = (await r.json()).line || '';
+    } catch (_) { /* the room keeps its opinion to itself */ }
+
+    // beat one: the room acknowledges the number you gave
+    setTimeout(() => { if (line) say(line); }, 500);
+    // beat two: and then a chair walks in
+    setTimeout(() => {
+      landLateChair(guess);
+      const v = document.getElementById('verdict');
+      if (v) v.textContent = line || 'The room is not going to change its mind.';
+      // only now do you have something to agree or disagree WITH
+      document.querySelectorAll('[data-choice]').forEach((b) => { b.disabled = false; });
+    }, 1400);
+  });
+} else if (late) {
+  // any other scene showing chairs keeps the original timed arrival
+  setTimeout(() => { late.style.opacity = ''; late.classList.add('late'); }, NUDGE_LATE_CHAIR);
+}
 
 // 3. the room notices you doing nothing, and escalates gently
 let nudgeAt = 0;

@@ -21,6 +21,7 @@ import {
   DEFINITION, EXPERIENCE_ID, INITIAL_SCENE, SCENES, sceneById,
   resolveRoom, noticeFor, NUDGES, HOVERS,
 } from '../../engine/src/experiences/waiting-room.ts';
+import { verdictFor, GUESS_MIN, GUESS_MAX } from '../../engine/src/experiences/waiting-room.ts';
 import { renderRoom, renderArtifact } from './render.ts';
 import { CONFIG, banner, type ImagineStatus } from './config.ts';
 import { Rng } from '../../engine/src/rng.ts';
@@ -233,7 +234,16 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
       title: resolved.closing,
       lines: [
         `you were told: ${resolved.greeting.toLowerCase()}`,
-        `the room insisted on ${resolved.claimedChairCount} chairs. it drew ${resolved.chairCount}.`,
+        (() => {
+          // If they committed a number, the artifact is a three-way disagreement
+          // between the visitor, the room's claim, and what it actually drew.
+          // That is far more shareable than the room disagreeing with itself.
+          const cnt = evs.find((e) => e.kind === 'counted');
+          const g = cnt ? Number((cnt.payload as Record<string, unknown>)?.guess) : NaN;
+          return Number.isFinite(g)
+            ? `you counted ${g}. the room insisted on ${resolved.claimedChairCount}. it drew ${resolved.chairCount}.`
+            : `the room insisted on ${resolved.claimedChairCount} chairs. it drew ${resolved.chairCount}.`;
+        })(),
         `it said: ${resolved.anomaly.line.toLowerCase()}`,
         pressed ? `you pressed the button. the button disagrees.` : `you left the button alone. so did everyone.`,
         `${state?.history.length ?? 0} choices, none of them the same as theirs.`,
@@ -373,6 +383,36 @@ const server = createServer(async (req, res) => {
       await repo.advanceScene(ctx.sessionId, choice.next);
       res.setHeader('set-cookie', ctx.setCookies);
       return json(res, { ok: true, sceneId: choice.next });
+    }
+
+    /* ---- you commit to a number ---- */
+    if (path === '/bff/count' && req.method === 'POST') {
+      const ctx = await resolveCtx(req);
+      const s2 = (await repo.getSession(ctx.sessionId))!;
+      const resolved2 = resolveRoom(s2.seed, Number(s2.replayIndex ?? 0));
+
+      const raw = Number((await body(req)).guess);
+      if (!Number.isInteger(raw) || raw < GUESS_MIN || raw > GUESS_MAX) {
+        return json(res, { error: 'The room cannot hold a number like that.' }, 400);
+      }
+
+      // What was ACTUALLY on screen when they committed. The late chair is one
+      // OF the total, held back — so the honest "visible" count is total-1.
+      const visible = Math.max(1, resolved2.chairCount - 1);
+      const { verdict, line } = verdictFor(
+        s2.seed, raw, visible, resolved2.chairCount, resolved2.claimedChairCount,
+      );
+
+      await repo.appendExperienceEvent(ctx.sessionId, 'counted', {
+        guess: raw, visibleAtGuess: visible,
+        drawn: resolved2.chairCount, claimed: resolved2.claimedChairCount, verdict,
+      });
+
+      return json(res, {
+        ok: true, guess: raw, verdict, line,
+        finalCount: resolved2.chairCount,
+        difference: Math.abs(raw - resolved2.chairCount),
+      });
     }
 
     if (path === '/bff/dwell' && req.method === 'POST') {
