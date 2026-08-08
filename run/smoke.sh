@@ -31,9 +31,11 @@ for game in 1 2 3; do
   for step in $(seq 1 14); do
     curl -s $J --max-time 15 "$H/room" -o "$tmp"
 
-    # 'artifact-mark' appears only on the ending. ('artifact-lines' is also in
-    # the stylesheet on every page, which cost me a debugging round.)
-    if grep -q 'class="artifact-mark"' "$tmp"; then reached=1; break; fi
+    # Detect the ending by TEXT, not by class name. Class names leak into the
+    # shared stylesheet on every page — 'artifact-lines' caught me once and
+    # 'cert-title' caught me again the moment the cert CSS became shared.
+    # "Record of one visit" can only exist in markup.
+    if grep -q 'Record of one visit' "$tmp"; then reached=1; break; fi
 
     if grep -q 'id="askform"' "$tmp"; then
       curl -s $J -X POST "$H/bff/answer" -H 'content-type: application/json' \

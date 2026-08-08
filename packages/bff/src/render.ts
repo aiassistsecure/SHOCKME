@@ -18,6 +18,13 @@ import { comparisonLine, fmtDuration, missedRooms, ROOM_NAMES, TOTAL_ROOMS } fro
 import type { Resolved } from '../../engine/src/experiences/waiting-room.ts';
 import type { ObservedLine } from '../../engine/src/world.ts';
 
+/*
+ * THE BEAT. A linear stagger reads as "loading". These offsets are a rhythm:
+ * three quick, a rest, two quick, a rest — bada pa pa pa. Nobody will name it;
+ * everybody will feel that the thing has a pulse instead of a scroll.
+ */
+const BEAT = [0, 0.14, 0.28, 0.62, 0.76, 1.10, 1.24, 1.38, 1.72, 1.86];
+
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -403,6 +410,82 @@ body.lightsout .wrap{filter:brightness(.82)}
   transform:scaleX(0);animation:seal 1.5s cubic-bezier(.16,1,.3,1) .3s forwards
 }
 @keyframes seal{to{transform:scaleX(1)}}
+/* ============ THE CERTIFICATE ============ */
+.cert{
+  position:relative;border:1px solid var(--line);padding:2.6rem 2.4rem 1.4rem;
+  background:linear-gradient(180deg,rgba(255,176,58,.035),transparent 42%);
+}
+/* registration marks — printerly, and they frame a screenshot */
+.tick{position:absolute;width:11px;height:11px;border:0 solid var(--phos);opacity:.55}
+.tick.tl{top:-1px;left:-1px;border-top-width:1px;border-left-width:1px}
+.tick.tr{top:-1px;right:-1px;border-top-width:1px;border-right-width:1px}
+.tick.bl{bottom:-1px;left:-1px;border-bottom-width:1px;border-left-width:1px}
+.tick.br{bottom:-1px;right:-1px;border-bottom-width:1px;border-right-width:1px}
+
+.cert-head{display:flex;align-items:center;gap:1rem;padding-bottom:1.4rem;
+  border-bottom:1px solid var(--line);margin-bottom:1.8rem}
+.cert-mark{font-size:1.5rem;color:var(--phos);line-height:1;
+  animation:pulse 5s ease-in-out infinite}
+.cert-meta{display:flex;flex-direction:column;gap:.22rem;min-width:0}
+.cert-kicker{font-size:9px;letter-spacing:.34em;text-transform:uppercase;color:var(--phos-dim)}
+.cert-serial{font-family:var(--crt);font-size:1.05rem;letter-spacing:.1em;color:var(--phos-hot)}
+
+.cert-title{
+  font-family:var(--crt);font-size:clamp(2rem,5.6vw,2.9rem);line-height:1.06;
+  color:var(--phos-hot);letter-spacing:.01em;margin-bottom:1.9rem;max-width:18ch;
+  text-shadow:0 0 30px rgba(255,176,58,.24)
+}
+
+/* the list. numbered, because a list song is numbered. */
+.cert-lines{list-style:none;margin:0 0 1.9rem}
+.cert-lines li{
+  display:flex;gap:.95rem;align-items:baseline;padding:.62rem 0;
+  border-bottom:1px solid rgba(58,42,20,.55);opacity:0;
+  animation:fadeup .62s cubic-bezier(.16,1,.3,1) both
+}
+.cert-lines li:last-child{border-bottom:0}
+.cert-lines .n{
+  font-family:var(--crt);font-size:.82rem;color:var(--phos-dim);
+  min-width:2.2ch;text-align:right;flex:0 0 auto;letter-spacing:.06em
+}
+.cert-lines .t{font-size:1rem;line-height:1.5;color:var(--phos)}
+
+.cert-closing{
+  font-family:var(--crt);font-size:1.35rem;line-height:1.3;color:var(--phos-hot);
+  padding:1.1rem 0 1.5rem;max-width:26ch
+}
+
+.cert-foot{
+  display:flex;justify-content:space-between;align-items:center;gap:1rem;
+  flex-wrap:wrap;padding-top:1.1rem;border-top:1px solid var(--line)
+}
+.cert-seal{display:flex;align-items:center;gap:.55rem;font-size:.68rem;
+  letter-spacing:.07em;color:var(--phos-dim)}
+.cert-brand{font-family:var(--crt);font-size:1rem;letter-spacing:.09em;
+  color:var(--phos);opacity:.85}
+
+.whose{margin-top:1.1rem;font-size:.72rem;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--phos-dim)}
+
+@media(max-width:520px){
+  .cert{padding:1.8rem 1.3rem 1.1rem}
+  .cert-lines li{gap:.7rem}
+  .cert-lines .t{font-size:.94rem}
+}
+.filed{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--phos-dim);
+  margin-bottom:1.6rem;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.actions{display:flex;gap:.8rem;flex-wrap:wrap;margin-top:2.2rem}
+.act{appearance:none;display:inline-flex;align-items:center;justify-content:center;
+  gap:.5rem;background:transparent;border:1px solid var(--line);color:var(--phos);
+  font-family:var(--mono);font-size:.74rem;letter-spacing:.2em;text-transform:uppercase;
+  padding:1.05rem 1.6rem;cursor:pointer;text-decoration:none;min-height:50px;
+  transition:border-color .3s,color .3s,background .3s}
+.act:hover{border-color:var(--phos);color:var(--phos-hot);background:rgba(255,179,71,.05)}
+.act.primary{border-color:var(--phos);color:var(--phos-hot)}
+.act.primary:hover{background:var(--phos);color:var(--void)}
+.enter{margin-top:3.5rem;padding-top:2rem;border-top:1px solid var(--line)}
+.enter p{color:#c9a978;font-size:1rem;margin-bottom:1.4rem;line-height:1.6}
+.enter em{font-family:var(--crt);font-size:1.3rem;font-style:normal;color:var(--phos-hot)}
 .artifact-mark{font-family:var(--crt);font-size:2.4rem;color:var(--phos);margin-bottom:1.1rem}
 .artifact-title{
   font-family:var(--crt);font-weight:400;font-size:clamp(1.7rem,4vw,2.6rem);
@@ -909,19 +992,44 @@ export function renderRoom(v: RoomView): string {
       </div>`;
   } else if (v.renderer === 'artifact' && v.artifact) {
     const a = v.artifact;
+    /*
+     * THE SAME CERTIFICATE AS THE PERMALINK.
+     *
+     * There are two places an artifact is drawn — the end of a run, and
+     * /a/:token when somebody opens a shared link. Redesigning only the
+     * permalink left the ending on the OLD layout, so the thing you saw and
+     * the thing your friend saw were different objects. Exactly the "one rule,
+     * two implementations" shape that has bitten this codebase all day, so
+     * both now emit identical markup and share every .cert rule.
+     */
     main = `
-      <div class="artifact r d3">
-        <div class="artifact-mark">${esc(a.mark)}</div>
-        <h2 class="artifact-title">${esc(a.title)}</h2>
-        <ul class="artifact-lines">
-          ${a.lines.map((l, i) => `<li style="animation-delay:${0.7 + i * 0.13}s">${esc(l)}</li>`).join('')}
-        </ul>
-        <p class="artifact-closing">${esc(a.closing)}</p>
-        <div class="artifact-seal">
-          ${a.historyIntact
-            ? `<span class="seal ok">&#10003;</span> your history is intact. ${a.chainLength} moments, hash-linked, unaltered.`
-            : `<span class="seal bad">!</span> this history could not be verified.`}
-        </div>
+      <div class="cert r d3">
+        <span class="tick tl"></span><span class="tick tr"></span>
+        <span class="tick bl"></span><span class="tick br"></span>
+        <header class="cert-head">
+          <div class="cert-mark">${esc(a.mark)}</div>
+          <div class="cert-meta">
+            <div class="cert-kicker">Record of one visit</div>
+            <div class="cert-serial">${v.shareToken ? `No. ${esc(v.shareToken)}` : 'unfiled'}</div>
+          </div>
+        </header>
+        <h2 class="cert-title">${esc(a.title)}</h2>
+        <ol class="cert-lines">
+          ${a.lines.map((l, i) => `
+            <li style="animation-delay:${(0.7 + BEAT[i % BEAT.length]).toFixed(2)}s">
+              <span class="n">${String(i + 1).padStart(2, '0')}</span>
+              <span class="t">${esc(l)}</span>
+            </li>`).join('')}
+        </ol>
+        <p class="cert-closing">${esc(a.closing)}</p>
+        <footer class="cert-foot">
+          <div class="cert-seal">
+            ${a.historyIntact
+              ? `<span class="seal ok">&#10003;</span><span>${a.chainLength} moments, hash-linked, unaltered</span>`
+              : `<span class="seal bad">!</span><span>this history could not be verified</span>`}
+          </div>
+          <div class="cert-brand">thrilling.world</div>
+        </footer>
       </div>
       <div class="drawbox r d4" id="drawbox">
         <div class="drawlbl">the room would like to draw you something</div>
@@ -1312,20 +1420,8 @@ export function renderArtifact(v: ArtifactView): string {
 <link href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>${CSS}
 .paper{max-width:660px;margin:0 auto;padding:9vh 0 5rem}
-.filed{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--phos-dim);
-  margin-bottom:1.6rem;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-.actions{display:flex;gap:.8rem;flex-wrap:wrap;margin-top:2.2rem}
-.act{appearance:none;display:inline-flex;align-items:center;justify-content:center;
-  gap:.5rem;background:transparent;border:1px solid var(--line);color:var(--phos);
-  font-family:var(--mono);font-size:.74rem;letter-spacing:.2em;text-transform:uppercase;
-  padding:1.05rem 1.6rem;cursor:pointer;text-decoration:none;min-height:50px;
-  transition:border-color .3s,color .3s,background .3s}
-.act:hover{border-color:var(--phos);color:var(--phos-hot);background:rgba(255,179,71,.05)}
-.act.primary{border-color:var(--phos);color:var(--phos-hot)}
-.act.primary:hover{background:var(--phos);color:var(--void)}
-.enter{margin-top:3.5rem;padding-top:2rem;border-top:1px solid var(--line)}
-.enter p{color:#c9a978;font-size:1rem;margin-bottom:1.4rem;line-height:1.6}
-.enter em{font-family:var(--crt);font-size:1.3rem;font-style:normal;color:var(--phos-hot)}
+
+
 @media(max-width:860px){
   .paper{padding:6vh 0 3rem}
   .actions{flex-direction:column}
@@ -1334,26 +1430,60 @@ export function renderArtifact(v: ArtifactView): string {
 </style>
 </head><body>
 <div class="wrap"><main class="paper">
-  <div class="filed r d1">
-    <span class="dot"></span>
-    <span>Record ${esc(v.token)}</span>
-    <span>·</span>
-    <span>${v.isOwner ? 'this happened to you' : 'this happened to someone else'}</span>
+  <!--
+    THE CERTIFICATE.
+
+    M: "improve the wireframe of the artifact, more elegant and shareable,
+    classy yet mambo #5? bada pa pa pa"
+
+    Two instructions that pull opposite ways, which is what makes it a brief.
+    CLASSY is the frame: registration marks at the corners, a serial number, a
+    verification seal, generous margins, nothing shouting. MAMBO is the
+    RHYTHM — Mambo No. 5 is a list song, and so is this. The lines are
+    numbered and they land on a beat rather than a linear fade, so reading it
+    has a pulse instead of a scroll.
+
+    Built to be screenshotted: a hard-edged card with its own boundary, the
+    domain set into the bottom rule, and type large enough to survive being
+    cropped and re-posted at half size.
+  -->
+  <div class="cert r d1">
+    <span class="tick tl"></span><span class="tick tr"></span>
+    <span class="tick bl"></span><span class="tick br"></span>
+
+    <header class="cert-head">
+      <div class="cert-mark">&#9672;</div>
+      <div class="cert-meta">
+        <div class="cert-kicker">Record of one visit</div>
+        <div class="cert-serial">No. ${esc(v.token)}</div>
+      </div>
+    </header>
+
+    <h2 class="cert-title">${esc(v.title)}</h2>
+
+    <ol class="cert-lines">
+      ${v.lines.map((l, i) => `
+        <li style="animation-delay:${(0.55 + BEAT[i % BEAT.length]).toFixed(2)}s">
+          <span class="n">${String(i + 1).padStart(2, '0')}</span>
+          <span class="t">${esc(l)}</span>
+        </li>`).join('')}
+    </ol>
+
+    <p class="cert-closing">${esc(v.closing)}</p>
+
+    <footer class="cert-foot">
+      <div class="cert-seal">
+        ${v.historyIntact
+          ? `<span class="seal ok">&#10003;</span><span>${v.chainLength} moments, hash-linked, unaltered since</span>`
+          : `<span class="seal bad">!</span><span>this record could not be verified</span>`}
+      </div>
+      <div class="cert-brand">thrilling.world</div>
+    </footer>
   </div>
 
-  <div class="artifact r d2">
-    <div class="artifact-mark">&#9672;</div>
-    <h2 class="artifact-title">${esc(v.title)}</h2>
-    <ul class="artifact-lines">
-      ${v.lines.map((l, i) => `<li style="animation-delay:${0.5 + i * 0.12}s">${esc(l)}</li>`).join('')}
-    </ul>
-    <p class="artifact-closing">${esc(v.closing)}</p>
-    <div class="artifact-seal">
-      ${v.historyIntact
-        ? `<span class="seal ok">&#10003;</span> ${v.chainLength} moments, hash-linked, unaltered since.`
-        : `<span class="seal bad">!</span> this record could not be verified.`}
-    </div>
-  </div>
+  <div class="whose r d3">${v.isOwner
+    ? 'This happened to you.'
+    : 'This happened to someone else. It will not happen to you.'}</div>
 
   <div class="actions r d4">
     <a class="act" href="${esc(tweet)}" target="_blank" rel="noopener noreferrer">Show someone</a>
