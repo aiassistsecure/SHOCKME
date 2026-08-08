@@ -1331,7 +1331,7 @@ export function renderArtifact(v: ArtifactView): string {
     <p><em>This is not a preview.</em> It already happened to somebody, once, and
        the room has no way to run it again. Yours will be a different room with
        a different number of chairs, and it will end with a different sentence.</p>
-    <a class="act primary" href="/">Go in</a>
+    <a class="act primary" href="/again">Go in</a>
   </div>
 
   ${footer()}

@@ -940,8 +940,54 @@ const server = createServer(async (req, res) => {
     }
 
     /* ---- the room itself ---- */
+    /*
+     * A NEW GAME MUST BE A NEW SESSION.
+     *
+     * M: "we need to fix the message that we require to enable new messages on
+     * every new game played, it hard codes the leftover message from previous
+     * games played for each player, my experience differs and I wanna leave a
+     * different message."
+     *
+     * The artifact's "Go in" was a plain href="/", which reused the finished
+     * session's cookie — so the visitor landed straight back on their old
+     * artifact, carrying their old answer, with the threshold gate already
+     * satisfied and no way to say something new. replaySession() was always
+     * correct; nothing was calling it.
+     *
+     * The visitorId is deliberately kept, so the room still knows you have
+     * been here before and the returning-visitor sting still fires. It is a
+     * new visit by the same person, not a new person.
+     */
+    if (path === '/again') {
+      const ctx = await resolveCtx(req);
+      const fresh = await repo.replaySession(ctx.sessionId, INITIAL_SCENE);
+      res.writeHead(302, {
+        location: '/',
+        'set-cookie': [...ctx.setCookies, cookie('sm_s', fresh.sessionId)],
+        'cache-control': 'no-store',
+      });
+      return res.end();
+    }
+
     if (path === '/' || path === '/room') {
       const ctx = await resolveCtx(req);
+
+      /*
+       * THE SAME BUG THROUGH A DIFFERENT DOOR. Anyone returning to
+       * thrilling.world with a finished session in their cookie would be shown
+       * that old ending rather than a new room. Arriving at the FRONT DOOR
+       * always means a new visit; the permalink at /a/:token is how you get
+       * back to an artifact you kept.
+       */
+      if (path === '/') {
+        const cur = await repo.getSession(ctx.sessionId);
+        if (cur && cur.currentSceneId === 'end') {
+          const fresh = await repo.replaySession(ctx.sessionId, INITIAL_SCENE);
+          ctx.sessionId = fresh.sessionId;
+          ctx.setCookies.push(cookie('sm_s', fresh.sessionId));
+        }
+      }
+
       const html = await renderCurrent(ctx);
       res.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
