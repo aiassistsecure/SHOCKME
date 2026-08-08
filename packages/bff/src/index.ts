@@ -180,11 +180,19 @@ const json = (res: ServerResponse, data: unknown, status = 200) => {
 
 /* ---------------- session resolution ---------------- */
 
-interface Ctx { visitorId: string; sessionId: string; setCookies: string[]; referrerClass: ReferrerClass }
+interface Ctx { visitorId: string; sessionId: string; setCookies: string[]; referrerClass: ReferrerClass; consent: 'granted' | 'denied' | 'unasked' }
 
 async function resolveCtx(req: IncomingMessage): Promise<Ctx> {
   const c = readCookies(req);
   const setCookies: string[] = [];
+
+  /*
+   * DECLINING HAS TEETH. A visitor who said no gets no arrival class recorded
+   * and no cross-visit afterimage derived — see below. They still get the
+   * entire game; they get a room with no memory of them, which is what they
+   * asked for. A consent dialog whose "no" changes nothing is worse than none.
+   */
+  const consent = c.sm_c === 'granted' ? 'granted' : c.sm_c === 'denied' ? 'denied' : 'unasked';
 
   const referrerClass = classifyReferrer(
     req.headers.referer,
@@ -214,13 +222,13 @@ async function resolveCtx(req: IncomingMessage): Promise<Ctx> {
    * the original string is never written anywhere — not to the log, not to a
    * cookie, not to the admin panel.
    */
-  if (!existing && referrerClass !== 'direct' && referrerClass !== 'internal') {
+  if (consent === 'granted' && !existing && referrerClass !== 'direct' && referrerClass !== 'internal') {
     try {
       await repo.appendExperienceEvent(sessionId, 'arrived', { referrerClass });
     } catch { /* an arrival we could not record is not worth failing a page for */ }
   }
 
-  return { visitorId, sessionId, setCookies, referrerClass };
+  return { visitorId, sessionId, setCookies, referrerClass, consent };
 }
 
 /* ---------------- the room ---------------- */
@@ -359,7 +367,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
    * to comment on, and only when we genuinely observed a referrer. Direct and
    * unknown arrivals get nothing — the room does not guess where you were.
    */
-  if (scene.id === INITIAL_SCENE) {
+  if (scene.id === INITIAL_SCENE && ctx.consent === 'granted') {
     const ev0 = await repo.eventsFor(ctx.sessionId);
     if (!ev0.some((e) => e.kind === 'arrival_beat')) {
       const ab = arrivalBeat(s.seed, ctx.referrerClass);
@@ -412,7 +420,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
      * feature is fine except leaking one person's sentence to another, so the
      * isolation is enforced twice and asserted in afterimage.test.ts.
      */
-    if (!afterimage && (v?.visitCount ?? 0) > 0) {
+    if (!afterimage && ctx.consent === 'granted' && (v?.visitCount ?? 0) > 0) {
       const mySessions = (await repo.db.rows(`FROM sessions WHERE ${eq('visitorId', ctx.visitorId)}`))
         .map((row) => String(row.sessionId));
       if (mySessions.length) {
@@ -610,6 +618,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     sting,
     echo,
     afterimage,
+    needsConsent: ctx.consent === 'unasked',
     variant: plan.variant,
     officeLines: plan.hasOffice ? OFFICE_LINES : undefined,
     answered: (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered'),
@@ -734,6 +743,18 @@ const server = createServer(async (req, res) => {
       await repo.advanceScene(ctx.sessionId, choice.next);
       res.setHeader('set-cookie', ctx.setCookies);
       return json(res, { ok: true, sceneId: choice.next });
+    }
+
+    /* ---- the memory choice, and it is honoured ---- */
+    if (path === '/bff/consent' && req.method === 'POST') {
+      const choice = String((await body(req)).choice ?? '');
+      if (choice !== 'granted' && choice !== 'denied') {
+        return json(res, { ok: false }, 400);
+      }
+      res.setHeader('set-cookie', [
+        `sm_c=${choice}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`,
+      ]);
+      return json(res, { ok: true, choice });
     }
 
     /* ---- the only thing we ever ask for ---- */

@@ -585,12 +585,51 @@ body.lightsout .wrap{filter:brightness(.82)}
  * alone does NOT protect it — without this the bar sits directly on top of the
  * say-box, which is precisely the "smushed" problem in a new costume.
  */
-:root{--barh:34px}
+:root{--barh:34px;--consenth:0px}
 @media(max-width:600px){:root{--barh:48px}}
 
-body{padding-bottom:var(--barh)}
-.rail{bottom:var(--barh)}
+/*
+ * TWO STACKED BARS. --consenth is 0 unless the gate is showing, so the
+ * reserved space is one expression that is correct in both states. Everything
+ * that must avoid the furniture reads the SAME sum — the alternative is three
+ * places computing "34 plus maybe 84", which is the drift bug I have shipped
+ * four times today.
+ */
+body.needs-consent{--consenth:96px}
+@media(max-width:600px){body.needs-consent{--consenth:140px}}
+
+body{padding-bottom:calc(var(--barh) + var(--consenth))}
+.rail{bottom:calc(var(--barh) + var(--consenth))}
 .creditbar{min-height:var(--barh)}
+
+/* --- the consent gate, directly above the credit bar --- */
+.consentbar{
+  position:fixed;left:0;right:0;bottom:var(--barh);z-index:41;
+  background:rgba(12,8,4,.97);backdrop-filter:blur(8px);
+  border-top:1px solid var(--phos-dim);
+  padding:.85rem max(4vw,env(safe-area-inset-left));
+  transition:transform .32s cubic-bezier(.16,1,.3,1);
+  animation:cnup .5s .8s cubic-bezier(.16,1,.3,1) both
+}
+@keyframes cnup{from{transform:translateY(110%)}to{transform:none}}
+.cn-in{max-width:1000px;margin:0 auto;display:flex;gap:1.2rem;
+  align-items:center;justify-content:space-between;flex-wrap:wrap}
+.cn-text{font-size:.72rem;line-height:1.62;color:#c9a978;max-width:62ch}
+.cn-text b{color:var(--phos-hot);font-weight:500}
+.cn-acts{display:flex;gap:.5rem;flex:0 0 auto}
+.cn-acts button{
+  background:transparent;border:1px solid var(--line);color:var(--phos);
+  font:inherit;font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;
+  padding:.6rem .9rem;cursor:pointer;white-space:nowrap;
+  transition:background .18s,color .18s,border-color .18s
+}
+.cn-acts button:hover{border-color:var(--phos);color:var(--phos-hot)}
+#cn-yes{border-color:var(--phos);color:var(--phos-hot)}
+#cn-yes:hover{background:var(--phos);color:#120b04}
+@media(max-width:600px){
+  .cn-in{flex-direction:column;align-items:stretch;gap:.7rem}
+  .cn-acts button{flex:1}
+}
 
 @media(max-width:600px){
   .creditbar .cb-sep{display:none}
@@ -705,6 +744,8 @@ export interface RoomView {
   echo?: string;
   /** How you arrived, or who you have been. At most one per run. */
   afterimage?: string;
+  /** True when this visitor has not yet chosen. Shows the upper bar. */
+  needsConsent?: boolean;
   artifact?: {
     mark: string;
     title: string;
@@ -814,6 +855,70 @@ function footer(): string {
  * cannot cover the say-box on a phone (which is the obvious way a fixed footer
  * ruins a chat product).
  */
+/**
+ * THE CONSENT GATE — the upper of two stacked sticky bars.
+ *
+ * M: "consent gate as a double sticky footer on the bottom."
+ *
+ * The Oracle's spec had consent as a hard-coded data-consent="granted"
+ * attribute, which is the site owner asserting consent on the visitor's
+ * behalf. This is the version that actually asks.
+ *
+ * IT HAS TEETH. Declining is not a cosmetic preference that dismisses a
+ * banner and changes nothing — see index.ts: a visitor who declines gets no
+ * arrival classification recorded, no cross-visit afterimage derived, and no
+ * beat that references a previous visit. They still get the whole game. They
+ * simply get a room with no memory of them, which is exactly what they asked
+ * for. A consent dialog whose "no" does nothing is worse than no dialog.
+ *
+ * Written plainly. The room is strange; the disclosure is not the place for
+ * that, and a cryptic privacy notice is just a dishonest one.
+ */
+function consentBar(): string {
+  return `
+  <div class="consentbar" id="consentbar" role="region" aria-label="Memory preference">
+    <div class="cn-in">
+      <span class="cn-text">
+        <b>This room can remember you.</b>
+        It keeps how you arrived and what you did here, on this site only, so
+        a second visit is not identical to the first. No advertising, no third
+        parties, nothing about where else you have been.
+      </span>
+      <span class="cn-acts">
+        <button type="button" id="cn-yes">Let it remember</button>
+        <button type="button" id="cn-no">Keep me a stranger</button>
+      </span>
+    </div>
+  </div>`;
+}
+
+const CONSENT_JS = `
+const cbar = document.getElementById('consentbar');
+if (cbar) {
+  const decide = async (choice) => {
+    /*
+     * Declining is acknowledged IN FICTION rather than punished. The room
+     * gets the last word, the visitor keeps the entire game, and nothing
+     * about the experience is withheld — only the memory of them.
+     */
+    if (choice === 'denied' && typeof say === 'function') {
+      say('The room will not remember you. It has already forgotten agreeing to that.');
+    }
+    cbar.style.transform = 'translateY(110%)';
+    document.body.classList.remove('needs-consent');
+    setTimeout(() => cbar.remove(), 320);
+    try {
+      await fetch('/bff/consent', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ choice }),
+      });
+    } catch (_) { /* the choice is still applied locally for this page */ }
+  };
+  document.getElementById('cn-yes').addEventListener('click', () => decide('granted'));
+  document.getElementById('cn-no').addEventListener('click', () => decide('denied'));
+}
+`;
+
 function stickyCredit(credit: string): string {
   return `
   <div class="creditbar">
@@ -1161,12 +1266,15 @@ export function renderRoom(v: RoomView): string {
   ${choices}
 </main></div>
 ${chatRail(v.lines)}
+${v.needsConsent ? consentBar() : ''}
 ${stickyCredit(creditFor(v.resolved.greeting + String(v.visitCount)))}
 <script type="module">
 ${FOOTER_JS}
+${CONSENT_JS}
 const NUDGES = ${JSON.stringify(v.nudges)};
 document.body.classList.add('sk-' + ${JSON.stringify(v.variant.skin)}, 'ch-' + ${JSON.stringify(v.variant.chairs)});
 if (${v.variant.hum ? 'true' : 'false'}) document.body.classList.add('hum');
+if (document.getElementById('consentbar')) document.body.classList.add('needs-consent');
 if (document.getElementById('darkroom')) document.body.classList.add('lightsout');
 const NUDGE_LATE_CHAIR = ${v.lateChairAfterMs};
 const CHAIRS_FINAL = ${finalChairs};
@@ -1571,6 +1679,7 @@ export function renderArtifact(v: ArtifactView): string {
 ${stickyCredit(creditFor(v.token))}
 <script type="module">
 ${FOOTER_JS}
+${CONSENT_JS}
 const c = document.getElementById('copy');
 c?.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(${JSON.stringify(url)});
