@@ -38,6 +38,8 @@ export const COLLECTIONS = [
    * the two above it are. Same install-only bug twice would be unforgivable.
    */
   'claims',
+  // v2 · pinned Imagine capsules. One row per session+room+slot.
+  'imagined_room_lines',
 ] as const;
 
 /* ------------------------------------------------------------------ */
