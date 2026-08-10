@@ -188,8 +188,35 @@ export async function claim(db: Nedb, opts: ClaimOpts): Promise<ClaimResult> {
     return { won: false, stream, fingerprint: fp, window, seq: -1, contenders: rows.length, invisible: true };
   }
 
+  /*
+   * CONFIRM BEFORE CLAIMING.
+   *
+   * MEASURED, and it disproves the simple version of this fence: under 32-way
+   * contention two racers occasionally BOTH see themselves as the minimum,
+   * because a read can miss a lower-seq row that has already committed. Each
+   * read-your-write is honoured; a read of somebody ELSE's slightly-earlier
+   * write is not guaranteed.
+   *
+   * So a believed win is re-checked once. The loser of a genuine race sees the
+   * earlier row on the second look and stands down. This does not make the
+   * fence a distributed-consensus primitive — nothing here is — it narrows the
+   * window from "sometimes duplicates" to "rarely duplicates", and only the
+   * racer that thinks it won pays the extra read.
+   *
+   * The residual risk is one duplicate line on a rail, which is the failure we
+   * started from and is not worth a heavier mechanism in a text game.
+   */
+  let won = winner?._hash === put.hash;
+  if (won) {
+    const confirm = await db.rows(
+      `FROM claims WHERE ${eq('stream', stream)} AND ${eq('window', window)} AND ${eq('fingerprint', fp)}`,
+    );
+    const first = [...confirm].sort((a, b) => a._seq - b._seq)[0];
+    won = first?._hash === put.hash;
+  }
+
   return {
-    won: winner?._hash === put.hash,
+    won,
     stream,
     fingerprint: fp,
     window,

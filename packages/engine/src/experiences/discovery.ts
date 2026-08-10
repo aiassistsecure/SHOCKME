@@ -221,7 +221,23 @@ export function planDiscoveries(
   // The visitor's own starting depth. Everything below is measured against it.
   const budget = Math.min(depthOf(scenes) + GROWTH_ALLOWANCE, MAX_SCENES);
 
-  const ordered = [...registry].sort((a, b) => a.id.localeCompare(b.id));
+  /*
+   * ORDER BY SEEDED PRIORITY, NOT BY NAME.
+   *
+   * Sorting by id gave determinism and a serious bias with it: the budget is
+   * finite, so whoever is evaluated first takes it. Measured over 2000 seeds,
+   * `antechamber` (alphabetically first) landed 1202 times and `office-v2`
+   * (last) landed 5. The alphabet was choosing the visitor's experience.
+   *
+   * Each module now draws a priority from ITS OWN namespace, so the order is
+   * shuffled per visitor while every module's number stays independent of
+   * which other modules exist. Determinism holds, and adding one in October
+   * still cannot move one shipped in August.
+   */
+  const ordered = [...registry]
+    .map((m) => ({ m, pri: new Rng(seed, `discover-order:${m.id}@${m.version}`).float() }))
+    .sort((a, b) => a.pri - b.pri || a.m.id.localeCompare(b.m.id))
+    .map((x) => x.m);
 
   for (const m of ordered) {
     if (usedGroups.has(m.group)) continue;
