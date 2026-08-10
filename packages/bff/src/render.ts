@@ -515,6 +515,29 @@ body.lightsout .wrap{filter:brightness(.82)}
 .endbar{display:flex;align-items:center;gap:1.3rem;flex-wrap:wrap}
 .endnote{color:var(--phos-dim);font-size:.82rem;font-family:var(--crt);font-size:1.15rem}
 
+/* --- v2 discovery surfaces --- */
+.discovery{display:flex;flex-direction:column;gap:.9rem;max-width:44rem}
+.objlabel{font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--phos-dim);
+  border-left:1px solid var(--line);padding-left:.6rem}
+.inscription{font-family:var(--crt);font-size:1.25rem;color:var(--phos-hot);
+  border-left:1px solid var(--phos-dim);padding-left:.9rem;margin:.3rem 0;opacity:.92}
+.marginnote{font-size:.78rem;color:var(--phos-dim);font-style:italic;margin-top:-.2rem}
+.witness{font-size:.86rem;color:#b8996d;border-left:1px solid var(--line);padding-left:.9rem}
+.tworec{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;border:1px solid var(--line);
+  padding:.85rem 1rem;background:rgba(20,15,10,.35);max-width:34rem}
+.tworec span{display:block;font-size:9px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--phos-dim);margin-bottom:.3rem}
+.tworec b{color:var(--phos-hot);font-weight:400;font-size:.88rem}
+.tworec i{color:var(--phos);font-size:.88rem;font-style:italic;opacity:.85}
+@media (max-width:520px){.tworec{grid-template-columns:1fr;gap:.6rem}}
+.namebox{border:1px solid var(--line);padding:.9rem 1rem;max-width:30rem;background:rgba(20,15,10,.35)}
+.namelbl{display:block;font-size:.78rem;color:var(--phos-dim);margin-bottom:.6rem}
+.namelbl b{color:var(--phos);font-weight:400}
+.namerow{display:flex;gap:.5rem}
+.namerow input{flex:1;min-width:0;appearance:none;background:transparent;border:1px solid var(--line);
+  color:var(--phos-hot);font-family:var(--mono);font-size:16px;padding:.65rem;outline:none}
+.namerow input:focus{border-color:var(--phos)}
+
 /* --- the rail --- */
 .rail{
   position:fixed;right:0;top:0;bottom:0;width:min(300px,26vw);
@@ -740,6 +763,17 @@ export interface RoomView {
   /** Per-visitor visual differences. Never announced. */
   variant: Variant;
   officeLines?: readonly string[];
+  /** v2 · a discovered room's authored copy plus its materialised capsules. */
+  discovery?: {
+    lines: string[];
+    heading?: string;
+    inscription?: string;
+    margin?: string;
+    objectLabel?: string;
+    witness?: string;
+    provisional?: string;
+    records?: { factual: string; reading: string };
+  };
   /** A line that could only exist because of an earlier choice. */
   echo?: string;
   /** How you arrived, or who you have been. At most one per run. */
@@ -1215,6 +1249,61 @@ export function renderRoom(v: RoomView): string {
         ${v.shareToken ? `<a class="bigbtn" href="/a/${esc(v.shareToken)}" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center"><span>Keep this</span></a>` : ''}
         <span class="endnote">it will not be the same room.</span>
       </div>`;
+  } else if (v.renderer === 'discovery') {
+    /*
+     * Every v2 discovery room renders through here.
+     *
+     * The authored lines carry the room; the capsule surfaces are what make
+     * THIS instance singular — an inscription already on the wall, the room's
+     * fallible margin note, the name of an object that should not need one.
+     * They are deliberately NOT boxed off or labelled as generated. A line
+     * captioned "AI wrote this" stops being something you found.
+     *
+     * The two-record block is the misfile anomaly when it lands here: what
+     * happened on the left, what the room made of it on the right, both
+     * clearly attributed. The left column is never invented.
+     */
+    const d = v.discovery!;
+    main = `
+      <div class="discovery r d3">
+        ${d.objectLabel ? `<div class="objlabel">${esc(d.objectLabel)}</div>` : ''}
+        ${d.lines.map((t, i) =>
+          `<p class="lede" style="animation-delay:${0.35 + i * 0.42}s">${esc(t)}</p>`).join('')}
+        ${d.inscription ? `<p class="inscription">${esc(d.inscription)}</p>` : ''}
+        ${d.records ? `
+        <div class="tworec">
+          <div><span>event record</span><b>${esc(d.records.factual)}</b></div>
+          <div><span>room record</span><i>${esc(d.records.reading)}</i></div>
+        </div>` : ''}
+        ${d.witness ? `<p class="witness">&ldquo;${esc(d.witness)}&rdquo;</p>` : ''}
+        ${d.margin ? `<p class="marginnote">${esc(d.margin)}</p>` : ''}
+      </div>`;
+  } else if (v.renderer === 'naming') {
+    /*
+     * THE NAMING ROOM.
+     *
+     * One word, and every later room uses it. The room's provisional name was
+     * generated BEFORE the visitor arrived — capsules are queued when the
+     * discovery becomes eligible — so the ordering does the work: the room had
+     * already called it something, and your word overwrites that.
+     *
+     * The word never enters an Imagine prompt and never enters a share unfurl.
+     * Both rules are enforced where the data leaves, not here.
+     */
+    const d = v.discovery!;
+    main = `
+      <div class="discovery r d3">
+        ${d.lines.map((t, i) =>
+          `<p class="lede" style="animation-delay:${0.35 + i * 0.42}s">${esc(t)}</p>`).join('')}
+        <form class="namebox r d4" id="nameform" autocomplete="off" method="post" action="/bff/name">
+          <label class="namelbl" for="thename">it is currently called <b>${esc(d.provisional ?? 'the object')}</b></label>
+          <div class="namerow">
+            <input id="thename" name="name" type="text" maxlength="24" placeholder="one word"
+                   aria-label="a name for the object">
+            <button class="commit" type="submit">Name it</button>
+          </div>
+        </form>
+      </div>`;
   } else {
     main = `<div class="objects r d3">${chairs}</div>`;
   }
@@ -1686,6 +1775,131 @@ c?.addEventListener('click', async () => {
         c.textContent = 'The link has been copied. It was already copied.';
         setTimeout(() => { c.textContent = 'Copy the link'; }, 3200);
   } catch { c.textContent = 'It would not let me.'; }
+});
+</script>
+</body></html>`;
+}
+
+/* ==================================================================== */
+/* THE ARRIVAL RECORD                                                    */
+/* ==================================================================== */
+
+export interface ArrivalView {
+  serial: string;
+  claim: string;
+  sub: string;
+  reason: string;
+  options: { id: string; label: string }[];
+  origin: string;
+  visitCount: number;
+  lines: ObservedLine[];
+  variant: Variant;
+  needsConsent?: boolean;
+}
+
+/**
+ * The first fifteen seconds.
+ *
+ * THREE THINGS THIS PAGE MUST DO, and each of them is a release gate:
+ *
+ *   1. ALL THREE CONTROLS VISIBLE WITHOUT SCROLLING at 1366x768 and 390x844.
+ *      The whole reason this page exists is that the old opening put its four
+ *      real choices below the fold. Sizing here is deliberately conservative:
+ *      the claim is clamped with vh units, the record is compact, and the
+ *      choices sit directly under it. No hero image, no spacer.
+ *
+ *   2. WORK WITHOUT JAVASCRIPT. This is a real <form method="post">, not a
+ *      button with a fetch handler. Every other choice in SHOCKME posts via
+ *      JS; this one cannot, because a stranger with a script blocker landing
+ *      on a dead first screen is the same 78% problem wearing a different hat.
+ *      Progressive enhancement only: JS adds the fade, never the function.
+ *
+ *   3. NOT ASK FOR ANYTHING. No email field, no support link, no donation, no
+ *      countdown, no wobbling call to action. The rail may stay, because it
+ *      contains voices rather than conversion furniture. The room should feel
+ *      attentive, not hungry.
+ */
+export function renderArrival(v: ArrivalView): string {
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>SHOCKME</title>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="SHOCKME">
+<meta property="og:url" content="${esc(v.origin)}/">
+<meta property="og:title" content="The room arrived first.">
+<meta property="og:description" content="It has started a file on you.">
+<meta property="og:image" content="${esc(v.origin)}/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${esc(v.origin)}/og.png">
+<meta name="theme-color" content="#0a0806">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>${CSS}
+/* --- the arrival record --- */
+.arrival{min-height:100svh;display:flex;flex-direction:column;justify-content:center;
+  padding:clamp(1rem,4vh,2.4rem) 0;gap:clamp(.9rem,2.4vh,1.6rem)}
+.arrival h1{font-family:var(--crt);font-size:clamp(1.9rem,5.2vh,3.1rem);line-height:1.02;
+  letter-spacing:.01em;color:var(--phos-hot);max-width:18ch;margin:0}
+.arrival .sub{color:var(--phos);font-size:clamp(.9rem,2vh,1.05rem);margin:0}
+.record{border:1px solid var(--line);padding:clamp(.7rem,2vh,1rem) clamp(.8rem,2.4vw,1.1rem);
+  background:rgba(20,15,10,.4);max-width:34rem}
+.record .rechead{font-size:10px;letter-spacing:.26em;text-transform:uppercase;
+  color:var(--phos-dim);margin-bottom:.55rem}
+.recrow{display:flex;gap:1rem;font-size:.82rem;line-height:1.9}
+.recrow span:first-child{color:var(--phos-dim);min-width:9.5rem}
+.recrow b{color:var(--phos-hot);font-weight:400}
+.recrow.pending b{color:var(--phos-dim)}
+.arrivals{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.2rem}
+.arrivals button{appearance:none;background:transparent;border:1px solid var(--line);
+  color:var(--phos);font-family:var(--mono);font-size:.78rem;letter-spacing:.16em;
+  text-transform:uppercase;padding:.85rem 1.15rem;cursor:pointer;
+  transition:border-color .25s,color .25s,background .25s}
+.arrivals button:hover,.arrivals button:focus-visible{border-color:var(--phos);
+  color:var(--phos-hot);background:rgba(255,179,71,.05);outline:none}
+.arrivals button:focus-visible{box-shadow:0 0 0 1px var(--phos)}
+@media (max-width:520px){
+  .arrivals{flex-direction:column}
+  .arrivals button{width:100%;text-align:left}
+  .recrow span:first-child{min-width:7rem}
+}
+@media (prefers-reduced-motion:reduce){.arrival *{animation:none!important}}
+</style>
+</head><body>
+<div class="wrap"><main class="room arrival">
+  <div class="eyebrow">
+    <span class="dot"></span>
+    <span>The Waiting Room</span>
+    <b>${v.visitCount > 0 ? `visit ${v.visitCount + 1}` : 'first visit'}</b>
+  </div>
+
+  <h1>${esc(v.claim)}</h1>
+  <p class="sub">${esc(v.sub)}</p>
+
+  <form class="record" method="post" action="/bff/arrive">
+    <div class="rechead">Arrival record / ${esc(v.serial)}</div>
+    <div class="recrow"><span>time received</span><b>00:00</b></div>
+    <div class="recrow"><span>origin</span><b>unconfirmed</b></div>
+    <div class="recrow pending"><span>reason</span><b>[${esc(v.reason)}]</b></div>
+    <div class="arrivals">
+      ${v.options.map((o) => `<button type="submit" name="reason" value="${esc(o.id)}">${esc(o.label)}</button>`).join('')}
+    </div>
+  </form>
+</main></div>
+${chatRail(v.lines)}
+${v.needsConsent ? consentBar() : ''}
+<script type="module">
+document.body.classList.add('sk-' + ${JSON.stringify(v.variant.skin)});
+${CONSENT_JS}
+// Enhancement only. The form above already works with this file absent.
+document.querySelectorAll('.arrivals button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.body.style.transition = 'opacity .3s';
+    document.body.style.opacity = '0.35';
+  });
 });
 </script>
 </body></html>`;

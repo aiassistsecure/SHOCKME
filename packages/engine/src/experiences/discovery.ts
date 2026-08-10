@@ -266,9 +266,43 @@ export function planDiscoveries(
     });
   }
 
-  const fingerprint = discoveries
+  return { scenes, projection: { discoveries, depth: depthOf(scenes), budget, fingerprint: fingerprintOf(discoveries) } };
+}
+
+export function fingerprintOf(discoveries: readonly Discovery[]): string {
+  return discoveries
     .map((d) => `${d.moduleId}@${d.version}/${d.variant}/${d.replacedScene}:${d.replacedChoice}`)
     .join('|') || 'core';
+}
 
-  return { scenes, projection: { discoveries, depth: depthOf(scenes), budget, fingerprint } };
+/**
+ * Rebuild a plan from a PERSISTED projection instead of planning again.
+ *
+ * This is what replay and refresh use. Re-planning would be almost right —
+ * same seed, same facts, same answer — and "almost right" is the wrong
+ * standard here: the registry is versioned and will grow, so a visit revisited
+ * after a deploy would quietly become a different visit. The persisted
+ * discovery event is the source of truth, exactly as the brief requires.
+ *
+ * A module that has since been removed from the registry is skipped rather
+ * than faked, and the edge simply reverts to where it always went — so an old
+ * artifact permalink degrades to the core spine instead of erroring.
+ */
+export function applyDiscoveries(
+  plan: Floorplan,
+  stored: readonly Discovery[],
+  registry: readonly RoomModule[],
+): SceneDef[] {
+  const scenes: SceneDef[] = plan.scenes.map((s) => ({ ...s, choices: s.choices.map((c) => ({ ...c })) }));
+  for (const d of stored) {
+    const m = registry.find((x) => x.id === d.moduleId && x.version === d.version);
+    if (!m) continue;
+    const host = scenes.find((s) => s.id === d.replacedScene);
+    const edge = host?.choices.find((c) => c.id === d.replacedChoice);
+    if (!host || !edge) continue;
+    if (scenes.some((s) => s.id === m.scene.id)) continue;
+    scenes.push({ ...m.scene, choices: m.scene.choices.map((c) => ({ ...c, next: d.rejoin })) });
+    edge.next = m.scene.id;
+  }
+  return scenes;
 }
