@@ -33,6 +33,13 @@ export const COLLECTIONS = [
    */
   'sites',
   'pixel_events',
+  /*
+   * v2 · the at-most-once fence (claim.ts). Listed here for exactly the reason
+   * the two above it are. Same install-only bug twice would be unforgivable.
+   */
+  'claims',
+  // v2 · pinned Imagine capsules. One row per session+room+slot.
+  'imagined_room_lines',
 ] as const;
 
 /* ------------------------------------------------------------------ */

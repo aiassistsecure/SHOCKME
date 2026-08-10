@@ -65,7 +65,7 @@ Three processes, one VPS, no orchestrator, no containers, no process manager.
 |---|---|---:|---|
 | **nedbd** | `nedb-engine 2.8.2 --dag` | 7070 | shared with other projects |
 | **imagine** | llama.cpp b10322 | 8081 | Qwen3.5-0.8B GGUF Q4_K_M, 532 MB, `--parallel 1` for KV-cache reuse |
-| **bff** | Node 22.6+ | 3400 | `--experimental-strip-types`, **zero runtime dependencies** |
+| **bff** | Node 22.6+ | 3410 | `--experimental-strip-types`; 3400 is only the default when `PORT` is unset |
 
 **Edge:** Cloudflare **Flexible** SSL → nginx on :80 only. No :443 listener; the
 box is a Mail-in-a-Box, so nginx uses `sites-available` **plus a symlink**.

@@ -26,7 +26,8 @@ import { renderRoom, renderArtifact } from './render.ts';
 import { CONFIG, banner, type ImagineStatus } from './config.ts';
 import { Rng } from '../../engine/src/rng.ts';
 import { AMBIENT } from '../../engine/src/world.ts';
-import { Imagine } from '../../engine/src/imagine.ts';
+import { Imagine, validateLine, IMAGINE_BUILD } from '../../engine/src/imagine.ts';
+import { admit } from '../../engine/src/publish.ts';
 import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, TICK_MS, type ObservedLine } from '../../engine/src/world.ts';
 import { screen, decline, rateCheck, noteSpoke, handleFor, MAX_LEN, type Utterance } from '../../engine/src/chat.ts';
 import { adminEnabled, tokenOk, gather, renderAdmin, ADMIN_TOKEN } from './admin.ts';
@@ -104,8 +105,37 @@ function startPump(): void {
           if (t % bot.cadence !== 0) continue;
           const key = `${t}:${bot.botId}`;
           if (lineCache.has(key)) continue;
-          const line = await imagine.line(t, bot.botId);
-          lineCache.set(key, line.text);
+          /*
+           * v2 · THE PUBLISH FENCE.
+           *
+           * Was: whatever the model said went straight into the cache and out
+           * to every open stream. An 0.8B model repeats itself, so the room
+           * could say the same sentence twice in one window and it read as a
+           * bug rather than as an echo.
+           *
+           * Now: normalise → screen → fingerprint → atomic claim → only then
+           * cache. Nothing reaches an SSE stream before the append commits.
+           * Losing is normal and cheap — the pump asks for a different line,
+           * five bounded attempts, then the curated corpus. The room is never
+           * late; at worst it is less varied. (publish.ts)
+           */
+          const admitted = await admit(repo.db, {
+            generate: async (_attempt, exclude) => {
+              const line = await imagine.line(t, bot.botId);
+              // Corpus lines are authored and deterministic — they are allowed
+              // to recur and must not consume the fence.
+              if (line.source !== 'imagine') return null;
+              return exclude.includes(line.text.toLowerCase())
+                ? null
+                : { text: line.text, source: 'imagine' as const };
+            },
+            fallback: () => new Rng(CONFIG.worldSeed, `fallback:${t}:${bot.botId}`).pick(AMBIENT),
+            screen: (text) => validateLine(text),
+            stream: 'broadcast',
+            jitterSeed: key,
+            meta: { tick: t, build: IMAGINE_BUILD },
+          });
+          lineCache.set(key, admitted.text);
           if (lineCache.size > 4000) lineCache.delete(lineCache.keys().next().value!);
           return; // one per pass — keeps the loop responsive on 2 cores
         }
