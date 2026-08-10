@@ -28,7 +28,6 @@ import { Rng } from '../../engine/src/rng.ts';
 import { AMBIENT } from '../../engine/src/world.ts';
 import { Imagine, validateLine, IMAGINE_BUILD } from '../../engine/src/imagine.ts';
 import { admit } from '../../engine/src/publish.ts';
-import { renderArrival } from './render.ts';
 import { ARRIVAL_OPTIONS, arrivalPrompt, serialFor, readArrival, filedLine, anomalyFor, type ArrivalChoice } from '../../engine/src/experiences/arrival.ts';
 import { factsFrom, hasArrived, planFrom, persistProjection, loadProjection, viewForDiscovery, moduleForScene } from './v2.ts';
 import { materialise } from '../../engine/src/capsules.ts';
@@ -424,12 +423,27 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
   const vfacts = factsFrom(evAll, ctx.consent === 'granted', v?.visitCount ?? 0);
   let stored = await loadProjection(repo.db, ctx.sessionId).catch(() => null);
   const v2 = planFrom(s.seed, evAll, vfacts, stored);
-  if (!stored && v2.discoveries.length) {
-    // Fire and forget: a visitor must never wait on bookkeeping.
-    persistProjection(repo.db, ctx.sessionId, v2.discoveries).catch(() => {});
-  }
   const planned: Floorplan = { ...plan, scenes: v2.scenes };
   const scene = sceneIn(planned, s.currentSceneId) ?? sceneById(s.currentSceneId) ?? sceneById(INITIAL_SCENE)!;
+  /*
+   * FREEZE ON ENTRY, NOT ON ARRIVAL.
+   *
+   * This used to persist on the FIRST render — the arrival screen, before the
+   * visitor had counted anything or chosen anything. The projection was
+   * therefore computed from empty facts and then frozen forever, so every
+   * module gated on a real action could never qualify: antechamber (needs a
+   * count) and others (needs a choice) appeared 0 times in 400 seeds, and the
+   * rest were skewed. Six playthroughs all landed in the same room, which is
+   * what tipped M off.
+   *
+   * So the plan stays fluid while the visitor is still in the core spine —
+   * every render re-derives it from the facts so far — and is written down the
+   * moment they actually step into a discovered room. After that it is the
+   * source of truth and nothing can move it.
+   */
+  if (!stored && v2.discoveries.length && moduleForScene(scene.id)) {
+    persistProjection(repo.db, ctx.sessionId, v2.discoveries).catch(() => {});
+  }
   const resolved = resolveRoom(s.seed, v?.visitCount ?? 0);   // seed used HERE, server-side
   const tick = currentTick();
   const state = await repo.getSessionState(ctx.sessionId);
@@ -739,6 +753,24 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     needsConsent: ctx.consent === 'unasked',
     variant: plan.variant,
     discovery,
+    /*
+     * The record rides on the arrival screen and nowhere else. Once declared
+     * it stops offering buttons and simply shows what was filed — the visitor
+     * gets a completed document rather than a form they already answered.
+     */
+    arrival: scene.id === INITIAL_SCENE ? (() => {
+      const decl = evAll.find((e) => e.kind === 'arrival_declared');
+      const pl = decl?.payload as Record<string, unknown> | undefined;
+      return {
+        serial: serialFor(s.seed),
+        options: ARRIVAL_OPTIONS.map((o) => ({ id: o.id, label: o.label })),
+        filed: pl ? {
+          factual: String(pl.factual ?? ''),
+          line: filedLine({ choice: pl.choice as ArrivalChoice, factual: String(pl.factual ?? ''),
+                            reading: String(pl.reading ?? ''), serial: String(pl.serial ?? '') }),
+        } : undefined,
+      };
+    })() : undefined,
     officeLines: plan.hasOffice ? OFFICE_LINES : undefined,
     answered: (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered'),
   });
@@ -856,6 +888,16 @@ const server = createServer(async (req, res) => {
       if (scene.id === 'threshold') {
         const answered = (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered');
         if (!answered) return json(res, { error: 'The room asked you something first.' }, 409);
+      }
+
+      /*
+       * If this step lands in a discovered room, write the projection down
+       * FIRST. The next render must find a stored plan, or it would re-derive
+       * from facts that now include this very choice — and could legitimately
+       * produce a plan without the room the visitor is standing in.
+       */
+      if (moduleForScene(choice.next) && planC.discoveries.length) {
+        await persistProjection(repo.db, ctx.sessionId, planC.discoveries).catch(() => {});
       }
 
       await repo.appendExperienceEvent(ctx.sessionId, 'choice', {
@@ -1340,36 +1382,6 @@ const server = createServer(async (req, res) => {
           ctx.sessionId = fresh.sessionId;
           ctx.setCookies.push(cookie('sm_s', fresh.sessionId));
         }
-      }
-
-      /*
-       * THE FIRST FIFTEEN SECONDS.
-       *
-       * ~78% of visitors touched nothing, because the four real choices began
-       * below the fold behind a headline that reads as an image. A visit now
-       * opens on one small document with three equal buttons, all above the
-       * fold, and the Waiting Room unfolds immediately after.
-       */
-      const evsA = await repo.eventsFor(ctx.sessionId);
-      if (!hasArrived(evsA)) {
-        const sA = (await repo.getSession(ctx.sessionId))!;
-        const vA = await repo.getVisitor(ctx.visitorId);
-        const prompt = arrivalPrompt(sA.seed);
-        const htmlA = renderArrival({
-          serial: serialFor(sA.seed),
-          claim: prompt.claim, sub: prompt.sub, reason: prompt.reason,
-          options: ARRIVAL_OPTIONS.map((o) => ({ id: o.id, label: o.label })),
-          origin: CONFIG.origin,
-          visitCount: vA?.visitCount ?? 0,
-          lines: roomLines(currentTick(), sA.seed),
-          variant: planFor(sA.seed, SCENES).variant,
-          needsConsent: ctx.consent === 'unasked',
-        });
-        res.writeHead(200, {
-          'content-type': 'text/html; charset=utf-8',
-          'set-cookie': ctx.setCookies, 'cache-control': 'no-store',
-        });
-        return res.end(htmlA);
       }
 
       const html = await renderCurrent(ctx);
