@@ -28,6 +28,10 @@ import { Rng } from '../../engine/src/rng.ts';
 import { AMBIENT } from '../../engine/src/world.ts';
 import { Imagine, validateLine, IMAGINE_BUILD } from '../../engine/src/imagine.ts';
 import { admit } from '../../engine/src/publish.ts';
+import { renderArrival } from './render.ts';
+import { ARRIVAL_OPTIONS, arrivalPrompt, serialFor, readArrival, filedLine, anomalyFor, type ArrivalChoice } from '../../engine/src/experiences/arrival.ts';
+import { factsFrom, hasArrived, planFrom, persistProjection, loadProjection, viewForDiscovery, moduleForScene } from './v2.ts';
+import { materialise } from '../../engine/src/capsules.ts';
 import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, TICK_MS, type ObservedLine } from '../../engine/src/world.ts';
 import { screen, decline, rateCheck, noteSpoke, handleFor, MAX_LEN, type Utterance } from '../../engine/src/chat.ts';
 import { adminEnabled, tokenOk, gather, renderAdmin, ADMIN_TOKEN } from './admin.ts';
@@ -202,6 +206,21 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   for await (const c of req) chunks.push(c as Buffer);
   if (!chunks.length) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString()); } catch { return {}; }
+}
+
+/**
+ * The Arrival Record posts a real HTML form, so it arrives urlencoded rather
+ * than as JSON. Every other choice in SHOCKME goes through fetch(); this one
+ * must survive a script blocker, because a stranger meeting a dead first
+ * screen is the 78% problem wearing a different hat.
+ */
+async function formBody(req: IncomingMessage): Promise<Record<string, string>> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  const raw = Buffer.concat(chunks).toString();
+  const out: Record<string, string> = {};
+  for (const [k, v] of new URLSearchParams(raw)) out[k] = v;
+  return out;
 }
 
 const json = (res: ServerResponse, data: unknown, status = 200) => {
@@ -392,7 +411,25 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
    * a session is mid-flight in a room their (re-derived) plan pruned.
    */
   const plan = planFor(s.seed, SCENES);
-  const scene = sceneIn(plan, s.currentSceneId) ?? sceneById(s.currentSceneId) ?? sceneById(INITIAL_SCENE)!;
+
+  /*
+   * v2 · DISCOVERY. The floorplan still mutates the core graph; the registry
+   * then replaces edges within whatever plan it produced. Order matters — the
+   * registry must see the visitor's ACTUAL doors, not the canonical ones.
+   *
+   * A persisted projection always wins over planning again, so a deploy that
+   * adds a module cannot change a walk already in progress.
+   */
+  const evAll = await repo.eventsFor(ctx.sessionId);
+  const vfacts = factsFrom(evAll, ctx.consent === 'granted', v?.visitCount ?? 0);
+  let stored = await loadProjection(repo.db, ctx.sessionId).catch(() => null);
+  const v2 = planFrom(s.seed, evAll, vfacts, stored);
+  if (!stored && v2.discoveries.length) {
+    // Fire and forget: a visitor must never wait on bookkeeping.
+    persistProjection(repo.db, ctx.sessionId, v2.discoveries).catch(() => {});
+  }
+  const planned: Floorplan = { ...plan, scenes: v2.scenes };
+  const scene = sceneIn(planned, s.currentSceneId) ?? sceneById(s.currentSceneId) ?? sceneById(INITIAL_SCENE)!;
   const resolved = resolveRoom(s.seed, v?.visitCount ?? 0);   // seed used HERE, server-side
   const tick = currentTick();
   const state = await repo.getSessionState(ctx.sessionId);
@@ -647,10 +684,42 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     }
   }
 
+  /*
+   * v2 · the discovered room's payload. materialise() is called here only when
+   * nothing is pinned yet; it is given a null generator so it CANNOT block the
+   * paint on inference — the authored fallbacks fill every surface, and the
+   * background pump upgrades them for the next render.
+   */
+  let discovery;
+  const mod = moduleForScene(scene.id);
+  if (mod) {
+    const d = v2.discoveries.find((x) => x.moduleId === mod.id) ?? {
+      moduleId: mod.id, version: mod.version, variant: mod.variants[0]!.id,
+      replacedScene: '', replacedChoice: '', rejoin: '',
+    };
+    const variant = mod.variants.find((x) => x.id === d.variant) ?? mod.variants[0]!;
+    const caps = await materialise(repo.db, {
+      seed: s.seed, sessionId: ctx.sessionId, module: mod, variant, facts: vfacts, generate: null,
+    }).catch(() => ({ tokens: {}, texture: {}, labels: {}, provenance: {} }));
+    const named = evAll.find((e) => e.kind === 'named');
+    const anom = anomalyFor(s.seed, ctx.consent === 'granted');
+    discovery = viewForDiscovery(s.seed, scene.id, d, caps, {
+      anomaly: anom,
+      misfileAction: vfacts.counted ? 'counted' : vfacts.pressed ? 'pressed' : 'arrived',
+      misfileFactual: vfacts.counted ? 'counted the chairs'
+        : vfacts.pressed ? 'pressed the button' : 'arrived and waited',
+      givenName: named ? String((named.payload as Record<string, unknown>)?.name ?? '') : undefined,
+    });
+  }
+
   return renderRoom({
     sceneId: scene.id,
     renderer: scene.renderer,
-    greeting: scene.id === 'arrival' ? resolved.greeting : titleFor(scene.id, resolved),
+    // A discovered room names itself from its heading slot. Without this every
+    // new room rendered as the default 'The room.' — the capsule was generated,
+    // pinned, and then thrown away one line before it reached the page.
+    greeting: scene.id === 'arrival' ? resolved.greeting
+      : (discovery?.heading ?? titleFor(scene.id, resolved)),
     body: BODIES[scene.id] ?? '',
     choices: scene.choices.map((c) => ({ id: c.id, label: c.label, hover: HOVERS[c.id] })),
     resolved,
@@ -669,6 +738,7 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
     afterimage,
     needsConsent: ctx.consent === 'unasked',
     variant: plan.variant,
+    discovery,
     officeLines: plan.hasOffice ? OFFICE_LINES : undefined,
     answered: (await repo.eventsFor(ctx.sessionId)).some((e) => e.kind === 'answered'),
   });
@@ -759,7 +829,22 @@ const server = createServer(async (req, res) => {
       const ctx = await resolveCtx(req);
       const { choiceId } = await body(req);
       const s = (await repo.getSession(ctx.sessionId))!;
-      const scene = sceneIn(planFor(s.seed, SCENES), s.currentSceneId) ?? sceneById(s.currentSceneId)!;
+      /*
+       * THE NAVIGATOR MUST WALK THE SAME GRAPH THE RENDERER DREW.
+       *
+       * This resolved the next scene from planFor() alone, so it stepped over
+       * every spliced discovery room and landed on the core destination —
+       * rooms were planned, rendered nowhere, and reachable never. Six curl
+       * playthroughs produced the identical trail with zero discoveries while
+       * the unit suite stayed green, because the suite tests the planner and
+       * the planner was right. Two sources of truth for one graph; now one.
+       */
+      const evsC = await repo.eventsFor(ctx.sessionId);
+      const vC = await repo.getVisitor(ctx.visitorId);
+      const planC = planFrom(s.seed, evsC,
+        factsFrom(evsC, ctx.consent === 'granted', vC?.visitCount ?? 0),
+        await loadProjection(repo.db, ctx.sessionId).catch(() => null));
+      const scene = planC.scenes.find((x) => x.id === s.currentSceneId) ?? sceneById(s.currentSceneId)!;
       const choice = scene.choices.find((c) => c.id === choiceId);
       if (!choice) return json(res, { error: 'no such choice' }, 400);
 
@@ -1190,6 +1275,53 @@ const server = createServer(async (req, res) => {
       return res.end();
     }
 
+    /*
+     * THE ARRIVAL RECORD, POSTED.
+     *
+     * A real form target, so the first action in the whole product works with
+     * JavaScript disabled. It answers 303 -> /room, which also means a refresh
+     * cannot re-submit the declaration.
+     *
+     * The declaration is written EXACTLY as chosen and never rephrased. What
+     * the room later makes of it is a separate, clearly-labelled reading.
+     */
+    if (path === '/bff/arrive' && req.method === 'POST') {
+      const form = await formBody(req);
+      const ctx = await resolveCtx(req);
+      const choice = String(form.reason ?? '') as ArrivalChoice;
+      if (!ARRIVAL_OPTIONS.some((o) => o.id === choice)) {
+        res.writeHead(303, { location: '/', 'set-cookie': ctx.setCookies });
+        return res.end();
+      }
+      const evs = await repo.eventsFor(ctx.sessionId);
+      if (!hasArrived(evs)) {
+        const sN = (await repo.getSession(ctx.sessionId))!;
+        const rec = readArrival(sN.seed, choice);
+        await repo.appendExperienceEvent(ctx.sessionId, 'arrival_declared', {
+          choice, factual: rec.factual, reading: rec.reading, serial: rec.serial,
+        });
+      }
+      res.writeHead(303, { location: '/room', 'set-cookie': ctx.setCookies, 'cache-control': 'no-store' });
+      return res.end();
+    }
+
+    /*
+     * THE NAMING ROOM. One word, screened by the same path as everything else
+     * a visitor types. It is stored so later rooms and the artifact can use it
+     * verbatim — and it is never placed in a model prompt or a share unfurl.
+     */
+    if (path === '/bff/name' && req.method === 'POST') {
+      const form = await formBody(req);
+      const ctx = await resolveCtx(req);
+      const word = String(form.name ?? '').trim().slice(0, 24);
+      const v = screen(word);
+      if (word && v.ok) {
+        await repo.appendExperienceEvent(ctx.sessionId, 'named', { name: word });
+      }
+      res.writeHead(303, { location: '/room', 'set-cookie': ctx.setCookies, 'cache-control': 'no-store' });
+      return res.end();
+    }
+
     if (path === '/' || path === '/room') {
       const ctx = await resolveCtx(req);
 
@@ -1208,6 +1340,36 @@ const server = createServer(async (req, res) => {
           ctx.sessionId = fresh.sessionId;
           ctx.setCookies.push(cookie('sm_s', fresh.sessionId));
         }
+      }
+
+      /*
+       * THE FIRST FIFTEEN SECONDS.
+       *
+       * ~78% of visitors touched nothing, because the four real choices began
+       * below the fold behind a headline that reads as an image. A visit now
+       * opens on one small document with three equal buttons, all above the
+       * fold, and the Waiting Room unfolds immediately after.
+       */
+      const evsA = await repo.eventsFor(ctx.sessionId);
+      if (!hasArrived(evsA)) {
+        const sA = (await repo.getSession(ctx.sessionId))!;
+        const vA = await repo.getVisitor(ctx.visitorId);
+        const prompt = arrivalPrompt(sA.seed);
+        const htmlA = renderArrival({
+          serial: serialFor(sA.seed),
+          claim: prompt.claim, sub: prompt.sub, reason: prompt.reason,
+          options: ARRIVAL_OPTIONS.map((o) => ({ id: o.id, label: o.label })),
+          origin: CONFIG.origin,
+          visitCount: vA?.visitCount ?? 0,
+          lines: roomLines(currentTick(), sA.seed),
+          variant: planFor(sA.seed, SCENES).variant,
+          needsConsent: ctx.consent === 'unasked',
+        });
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'set-cookie': ctx.setCookies, 'cache-control': 'no-store',
+        });
+        return res.end(htmlA);
       }
 
       const html = await renderCurrent(ctx);

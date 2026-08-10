@@ -40,6 +40,8 @@ export const COLLECTIONS = [
   'claims',
   // v2 · pinned Imagine capsules. One row per session+room+slot.
   'imagined_room_lines',
+  // v2 · one persisted projection per session. Replay reads this, never re-plans.
+  'projections',
 ] as const;
 
 /* ------------------------------------------------------------------ */
