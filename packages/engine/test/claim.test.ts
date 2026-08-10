@@ -72,20 +72,33 @@ async function race(fp: string) {
  * It is "this can never win". An unreadable write is treated as a loss, the
  * pump generates another candidate, and no duplicate reaches a visitor.
  */
+/*
+ * AT MOST ONE WINNER, NOT EXACTLY ONE.
+ *
+ * A round can legitimately produce ZERO. It happens when the racer holding the
+ * lowest seq is the one that cannot read its own append: it declares a loss,
+ * and every other racer correctly sees that row as the minimum and loses too.
+ *
+ * The fence fails CLOSED, which is the only direction that matters here — it
+ * costs one candidate, the pump generates another, and no duplicate ever
+ * reaches a visitor. Asserting "exactly one" would be demanding a publication
+ * guarantee this primitive was never built to make, and would flake forever.
+ */
 let totalInvisible = 0;
 let totalBlind = 0;
-let allSingle = true;
+let doubleWins = 0;
+let emptyRounds = 0;
 for (let i = 0; i < ROUNDS; i++) {
-  const { winners, invisible, blindWins, minSeen } = await race(`${RUN}-fp-${i}`);
+  const { winners, invisible, blindWins } = await race(`${RUN}-fp-${i}`);
   totalInvisible += invisible;
   totalBlind += blindWins;
-  if (winners !== 1) {
-    allSingle = false;
-    console.log(`  round ${i}: ${winners} winners, ${invisible} invisible, min seen ${minSeen}`);
-  }
+  if (winners > 1) doubleWins++;
+  if (winners === 0) emptyRounds++;
 }
 const appends = ROUNDS * RACERS;
-check(`exactly one winner × ${ROUNDS} rounds`, allSingle, `  (${appends} contested appends)`);
+check(`never two winners × ${ROUNDS} rounds`, doubleWins === 0, `  (${appends} contested appends)`);
+console.log(`  ${'rounds with no winner'.padEnd(38)} ${emptyRounds}/${ROUNDS}` +
+  '  (fails closed — costs a candidate, never a duplicate)');
 check('an unreadable write never wins', totalBlind === 0, `  (${totalBlind})`);
 console.log(`  ${'unreadable self-writes'.padEnd(38)} ${totalInvisible}/${appends}` +
   `  (${((totalInvisible / appends) * 100).toFixed(2)}% — handled as losses)`);

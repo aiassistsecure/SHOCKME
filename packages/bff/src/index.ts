@@ -29,6 +29,7 @@ import { AMBIENT } from '../../engine/src/world.ts';
 import { Imagine, validateLine, IMAGINE_BUILD } from '../../engine/src/imagine.ts';
 import { admit } from '../../engine/src/publish.ts';
 import { ARRIVAL_OPTIONS, arrivalPrompt, serialFor, readArrival, filedLine, anomalyFor, type ArrivalChoice } from '../../engine/src/experiences/arrival.ts';
+import { V2_ROOM_NAMES } from '../../engine/src/experiences/rooms-v2.ts';
 import { factsFrom, hasArrived, planFrom, persistProjection, loadProjection, viewForDiscovery, moduleForScene } from './v2.ts';
 import { materialise } from '../../engine/src/capsules.ts';
 import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, TICK_MS, type ObservedLine } from '../../engine/src/world.ts';
@@ -663,10 +664,34 @@ async function renderCurrent(ctx: Ctx, dwellMs = 0): Promise<string> {
               (e.payload as Record<string, unknown>)?.from === 'office')
           ? ['you found the office. most visitors are not given one.'] : []),
         (() => {
+          /*
+           * THE COUNT IS OF THIS VISITOR'S BUILDING, NOT A GLOBAL CONSTANT.
+           *
+           * It used to say "there are 12 rooms" always. With a discovery
+           * registry that is simply false: a visitor who walked through the
+           * Corrections Desk was told it did not exist and was not credited
+           * for finding it. The catalogue is 20 and growing, and the honest
+           * sentence is about the rooms THEY could have walked.
+           */
           const seen = facts?.roomsSeen ?? [];
-          const missed = missedRooms(seen);
-          if (!missed.length) return `you have been in all ${TOTAL_ROOMS} rooms. nobody does this on the first visit.`;
-          return `there are ${TOTAL_ROOMS} rooms. you found ${seen.length}. you did not find ${missed.slice(0, 2).join(' or ')}.`;
+          const found = new Set(seen);
+          for (const d of v2.discoveries) {
+            const sc = moduleForScene(d.moduleId) ?? null;
+            const id = sc ? sc.scene.id : d.moduleId;
+            if (evAll.some((e) => e.kind === 'choice' &&
+                ((e.payload as Record<string, unknown>)?.to === id ||
+                 (e.payload as Record<string, unknown>)?.from === id))) found.add(id);
+          }
+          const total = TOTAL_ROOMS + v2.discoveries.length;
+          const missed = [
+            ...missedRooms([...found]),
+            ...v2.discoveries
+              .map((d) => (moduleForScene(d.moduleId)?.scene.id) ?? d.moduleId)
+              .filter((id) => !found.has(id))
+              .map((id) => V2_ROOM_NAMES[id] ?? 'a room with no name'),
+          ];
+          if (!missed.length) return `you have been in all ${total} rooms. nobody does this on the first visit.`;
+          return `there are ${total} rooms. you found ${found.size}. you did not find ${missed.slice(0, 2).join(' or ')}.`;
         })(),
       ],
       closing: pressed ? resolved.nonPress : 'nothing was pressed. nothing ever is.',

@@ -45,13 +45,49 @@ const NEWCOMER: RoomModule = {
   slots: [],
 };
 const withNewcomer = SEEDS.map((s) => planDiscoveries(s, planFor(s, SCENES), FACTS, [...REGISTRY, NEWCOMER]));
-const unchanged = plans.every((p, i) => {
-  const before = p.projection.discoveries.map((d) => `${d.moduleId}/${d.variant}`).join(',');
-  const after = withNewcomer[i]!.projection.discoveries
-    .filter((d) => d.moduleId !== 'zzz-newcomer').map((d) => `${d.moduleId}/${d.variant}`).join(',');
-  return before === after;
+
+/*
+ * WHAT NON-INTERFERENCE CAN AND CANNOT MEAN.
+ *
+ * This used to assert that adding a module changes NOTHING about the others,
+ * and it passed — because the fixture was called `zzz-newcomer`, modules were
+ * evaluated in alphabetical order, and it therefore sorted last and could
+ * never take budget from anyone. A test that only holds because of the name of
+ * its own fixture is not a test.
+ *
+ * The visit budget is finite and shared, so a new room genuinely does compete
+ * for it. That is exactly what "additions spend the visit budget" means; the
+ * alternative is a catalogue that lengthens the visit, which is the thing the
+ * whole design exists to prevent.
+ *
+ * The invariant that IS load-bearing: every module's own decision — whether it
+ * qualifies, and which authored variant it runs — comes from its own seeded
+ * namespace and is untouched by what else is registered. A module never
+ * changes another module's CONTENT; it can only win or lose the same budget.
+ */
+let variantDrift = 0, appearedBoth = 0;
+plans.forEach((p, i) => {
+  const after = new Map(withNewcomer[i]!.projection.discoveries.map((d) => [d.moduleId, d.variant]));
+  for (const d of p.projection.discoveries) {
+    const a = after.get(d.moduleId);
+    if (a === undefined) continue;          // lost the budget race — legitimate
+    appearedBoth++;
+    if (a !== d.variant) variantDrift++;    // changed its content — never legitimate
+  }
 });
-check('a new module cannot shift existing ones', unchanged, '  (400 seeds)');
+check('a new module never alters another\'s variant', variantDrift === 0,
+  `  (${appearedBoth} co-occurrences, ${variantDrift} drifted)`);
+
+const rollOf = (id: string, seed: string) =>
+  planDiscoveries(seed, planFor(seed, SCENES), FACTS, REGISTRY.filter((m) => m.id === id))
+    .projection.discoveries.map((d) => d.variant).join('');
+const soloStable = SEEDS.slice(0, 60).every((s) => {
+  const solo = rollOf('naming', s);
+  const inCrowd = planDiscoveries(s, planFor(s, SCENES), FACTS, [...REGISTRY, NEWCOMER])
+    .projection.discoveries.find((d) => d.moduleId === 'naming')?.variant;
+  return inCrowd === undefined || inCrowd === solo;
+});
+check('a module decides the same alone or in a crowd', soloStable, '  (60 seeds)');
 
 /* budget, termination, rejoin */
 const overBudget = plans.filter((p) => p.projection.depth > p.projection.budget);

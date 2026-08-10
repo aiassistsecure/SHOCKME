@@ -26,7 +26,7 @@ import type { RoomModule } from './discovery.ts';
 /* ------------------------------------------------------------------ */
 
 const CORRECTIONS: RoomModule = {
-  id: 'corrections', version: 1, group: 'record', cost: 1, chance: 0.34,
+  id: 'corrections', version: 1, group: 'record', cost: 1, chance: 0.55,
   replace: { scene: 'corridor' },
   requires: (f) => f.arrivalReading !== null,
   scene: {
@@ -93,7 +93,7 @@ const CORRECTIONS: RoomModule = {
 /* ------------------------------------------------------------------ */
 
 const FILE_ROOM: RoomModule = {
-  id: 'file-room', version: 1, group: 'record', cost: 1, chance: 0.34,
+  id: 'file-room', version: 1, group: 'record', cost: 1, chance: 0.55,
   replace: { scene: 'corridor' },
   requires: (f) => f.arrivalReading !== null,
   scene: {
@@ -164,7 +164,7 @@ const FILE_ROOM: RoomModule = {
 /* ------------------------------------------------------------------ */
 
 const RECURSION: RoomModule = {
-  id: 'antechamber', version: 1, group: 'recursion', cost: 1, chance: 0.3,
+  id: 'antechamber', version: 1, group: 'recursion', cost: 1, chance: 0.6,
   replace: { scene: 'counting', choice: 'disagree' },
   requires: (f) => f.counted,
   scene: {
@@ -223,7 +223,7 @@ const RECURSION: RoomModule = {
 /* ------------------------------------------------------------------ */
 
 const AUDIENCE: RoomModule = {
-  id: 'others', version: 1, group: 'audience', cost: 1, chance: 0.28,
+  id: 'others', version: 1, group: 'audience', cost: 1, chance: 0.55,
   replace: { scene: 'button', choice: 'refuse' },
   requires: (f) => f.choices.length > 0,
   scene: {
@@ -287,7 +287,7 @@ const AUDIENCE: RoomModule = {
 /* ------------------------------------------------------------------ */
 
 const LOST_FOUND: RoomModule = {
-  id: 'lost-found', version: 1, group: 'residue', cost: 1, chance: 0.3,
+  id: 'lost-found', version: 1, group: 'residue', cost: 1, chance: 0.55,
   replace: { scene: 'button', choice: 'press' },
   scene: {
     id: 'lost-found', renderer: 'discovery',
@@ -351,7 +351,7 @@ const LOST_FOUND: RoomModule = {
 /* ------------------------------------------------------------------ */
 
 const NAMING: RoomModule = {
-  id: 'naming', version: 1, group: 'authorship', cost: 1, chance: 0.26,
+  id: 'naming', version: 1, group: 'authorship', cost: 1, chance: 0.5,
   replace: { scene: 'counting', choice: 'agree' },
   scene: {
     id: 'naming', renderer: 'naming',
@@ -417,7 +417,7 @@ const NAMING: RoomModule = {
 /* ------------------------------------------------------------------ */
 
 const FORETOLD: RoomModule = {
-  id: 'foretold', version: 1, group: 'foretold', cost: 1, chance: 0.24,
+  id: 'foretold', version: 1, group: 'foretold', cost: 1, chance: 0.5,
   replace: { scene: 'threshold' },
   scene: {
     id: 'foretold', renderer: 'discovery',
@@ -493,7 +493,7 @@ const FORETOLD: RoomModule = {
  * because planDiscoveries() refuses a scene id already in the plan.
  */
 const OFFICE: RoomModule = {
-  id: 'office-v2', version: 1, group: 'residue', cost: 1, chance: 0.2,
+  id: 'office-v2', version: 1, group: 'residue', cost: 1, chance: 0.4,
   replace: { scene: 'corridor' },
   scene: {
     id: 'office', renderer: 'office',
@@ -543,6 +543,22 @@ const OFFICE: RoomModule = {
 export const REGISTRY: readonly RoomModule[] = [
   CORRECTIONS, FILE_ROOM, RECURSION, AUDIENCE, LOST_FOUND, NAMING, FORETOLD, OFFICE,
 ];
+
+/**
+ * Human names, for the artifact. The room does not say "scene id", and until
+ * now it had no word at all for a discovered room — so a visit that found the
+ * Corrections Desk was told it had found nothing extra.
+ */
+export const V2_ROOM_NAMES: Record<string, string> = {
+  corrections: 'the corrections desk',
+  'file-room': 'your file',
+  antechamber: 'the room before the room',
+  others: 'the others',
+  'lost-found': 'the lost and found',
+  naming: 'the naming',
+  foretold: 'the door on the left',
+  office: 'the office',
+};
 
 /** Every group in the registry. A visit gets at most one module per group. */
 export const GROUPS = [...new Set(REGISTRY.map((m) => m.group))];
