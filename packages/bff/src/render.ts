@@ -515,6 +515,25 @@ body.lightsout .wrap{filter:brightness(.82)}
 .endbar{display:flex;align-items:center;gap:1.3rem;flex-wrap:wrap}
 .endnote{color:var(--phos-dim);font-size:.82rem;font-family:var(--crt);font-size:1.15rem}
 
+/* --- v2 the arrival record, in the room, under the doors --- */
+.record{border:1px solid var(--line);padding:.85rem 1rem;margin-top:1.8rem;max-width:32rem;
+  background:rgba(20,15,10,.3);opacity:.9}
+.record .rechead{font-size:9px;letter-spacing:.26em;text-transform:uppercase;
+  color:var(--phos-dim);margin-bottom:.5rem}
+.recrow{display:flex;gap:1rem;font-size:.78rem;line-height:1.8}
+.recrow span:first-child{color:var(--phos-dim);min-width:8.5rem}
+.recrow b{color:var(--phos-hot);font-weight:400}
+.recrow.pending b{color:var(--phos-dim)}
+.recfiled{font-size:.76rem;color:var(--phos-dim);font-style:italic;margin-top:.5rem}
+.arrivals{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.6rem}
+.arrivals button{appearance:none;background:transparent;border:1px solid var(--line);
+  color:var(--phos-dim);font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;
+  text-transform:uppercase;padding:.6rem .85rem;cursor:pointer;
+  transition:border-color .25s,color .25s}
+.arrivals button:hover,.arrivals button:focus-visible{border-color:var(--phos);color:var(--phos-hot);outline:none}
+@media (max-width:520px){.arrivals{flex-direction:column}.arrivals button{width:100%;text-align:left}
+  .recrow span:first-child{min-width:7rem}}
+
 /* --- v2 discovery surfaces --- */
 .discovery{display:flex;flex-direction:column;gap:.9rem;max-width:44rem}
 .objlabel{font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--phos-dim);
@@ -763,6 +782,26 @@ export interface RoomView {
   /** Per-visitor visual differences. Never announced. */
   variant: Variant;
   officeLines?: readonly string[];
+  /**
+   * v2 · THE ARRIVAL RECORD, on the arrival screen only.
+   *
+   * It is a BLOCK IN THE ROOM, not a page in front of it. The first build made
+   * it a standalone screen and the Waiting Room's greeting, chairs and four
+   * doors vanished from first contact — which is the intro destroyed, not the
+   * intro improved. The brief's "replace the opening's first hierarchy" means
+   * change what is biggest ON the screen, and it says plainly that the arrival
+   * beat is an event, not a new room.
+   *
+   * So it sits UNDER the four doors, quieter than them. Nothing is gated: a
+   * visitor can ignore it completely and walk into the room exactly as they
+   * did yesterday.
+   */
+  arrival?: {
+    serial: string;
+    options: { id: string; label: string }[];
+    /** Set once declared — the record fills in and the buttons are gone. */
+    filed?: { factual: string; line: string };
+  };
   /** v2 · a discovered room's authored copy plus its materialised capsules. */
   discovery?: {
     lines: string[];
@@ -1316,6 +1355,19 @@ export function renderRoom(v: RoomView): string {
         <span>${esc(c.label)}</span><span class="arrow">&rarr;</span></button>`).join('')}
     </div>` : '';
 
+  const arrivalBlock = v.arrival ? `
+    <form class="record r d6" method="post" action="/bff/arrive">
+      <div class="rechead">Arrival record / ${esc(v.arrival.serial)}</div>
+      <div class="recrow"><span>time received</span><b>00:00</b></div>
+      <div class="recrow"><span>origin</span><b>unconfirmed</b></div>
+      ${v.arrival.filed
+        ? `<div class="recrow"><span>reason</span><b>${esc(v.arrival.filed.factual)}</b></div>
+           <p class="recfiled">${esc(v.arrival.filed.line)}</p>`
+        : `<div class="recrow pending"><span>reason</span><b>[choose one]</b></div>
+           <div class="arrivals">${v.arrival.options.map((o) =>
+             `<button type="submit" name="reason" value="${esc(o.id)}">${esc(o.label)}</button>`).join('')}</div>`}
+    </form>` : '';
+
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -1353,6 +1405,7 @@ export function renderRoom(v: RoomView): string {
   <div class="aside" id="aside"></div>
   ${main}
   ${choices}
+  ${arrivalBlock}
 </main></div>
 ${chatRail(v.lines)}
 ${v.needsConsent ? consentBar() : ''}
@@ -1775,131 +1828,6 @@ c?.addEventListener('click', async () => {
         c.textContent = 'The link has been copied. It was already copied.';
         setTimeout(() => { c.textContent = 'Copy the link'; }, 3200);
   } catch { c.textContent = 'It would not let me.'; }
-});
-</script>
-</body></html>`;
-}
-
-/* ==================================================================== */
-/* THE ARRIVAL RECORD                                                    */
-/* ==================================================================== */
-
-export interface ArrivalView {
-  serial: string;
-  claim: string;
-  sub: string;
-  reason: string;
-  options: { id: string; label: string }[];
-  origin: string;
-  visitCount: number;
-  lines: ObservedLine[];
-  variant: Variant;
-  needsConsent?: boolean;
-}
-
-/**
- * The first fifteen seconds.
- *
- * THREE THINGS THIS PAGE MUST DO, and each of them is a release gate:
- *
- *   1. ALL THREE CONTROLS VISIBLE WITHOUT SCROLLING at 1366x768 and 390x844.
- *      The whole reason this page exists is that the old opening put its four
- *      real choices below the fold. Sizing here is deliberately conservative:
- *      the claim is clamped with vh units, the record is compact, and the
- *      choices sit directly under it. No hero image, no spacer.
- *
- *   2. WORK WITHOUT JAVASCRIPT. This is a real <form method="post">, not a
- *      button with a fetch handler. Every other choice in SHOCKME posts via
- *      JS; this one cannot, because a stranger with a script blocker landing
- *      on a dead first screen is the same 78% problem wearing a different hat.
- *      Progressive enhancement only: JS adds the fade, never the function.
- *
- *   3. NOT ASK FOR ANYTHING. No email field, no support link, no donation, no
- *      countdown, no wobbling call to action. The rail may stay, because it
- *      contains voices rather than conversion furniture. The room should feel
- *      attentive, not hungry.
- */
-export function renderArrival(v: ArrivalView): string {
-  return `<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex">
-<title>SHOCKME</title>
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="SHOCKME">
-<meta property="og:url" content="${esc(v.origin)}/">
-<meta property="og:title" content="The room arrived first.">
-<meta property="og:description" content="It has started a file on you.">
-<meta property="og:image" content="${esc(v.origin)}/og.png">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="${esc(v.origin)}/og.png">
-<meta name="theme-color" content="#0a0806">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>${CSS}
-/* --- the arrival record --- */
-.arrival{min-height:100svh;display:flex;flex-direction:column;justify-content:center;
-  padding:clamp(1rem,4vh,2.4rem) 0;gap:clamp(.9rem,2.4vh,1.6rem)}
-.arrival h1{font-family:var(--crt);font-size:clamp(1.9rem,5.2vh,3.1rem);line-height:1.02;
-  letter-spacing:.01em;color:var(--phos-hot);max-width:18ch;margin:0}
-.arrival .sub{color:var(--phos);font-size:clamp(.9rem,2vh,1.05rem);margin:0}
-.record{border:1px solid var(--line);padding:clamp(.7rem,2vh,1rem) clamp(.8rem,2.4vw,1.1rem);
-  background:rgba(20,15,10,.4);max-width:34rem}
-.record .rechead{font-size:10px;letter-spacing:.26em;text-transform:uppercase;
-  color:var(--phos-dim);margin-bottom:.55rem}
-.recrow{display:flex;gap:1rem;font-size:.82rem;line-height:1.9}
-.recrow span:first-child{color:var(--phos-dim);min-width:9.5rem}
-.recrow b{color:var(--phos-hot);font-weight:400}
-.recrow.pending b{color:var(--phos-dim)}
-.arrivals{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.2rem}
-.arrivals button{appearance:none;background:transparent;border:1px solid var(--line);
-  color:var(--phos);font-family:var(--mono);font-size:.78rem;letter-spacing:.16em;
-  text-transform:uppercase;padding:.85rem 1.15rem;cursor:pointer;
-  transition:border-color .25s,color .25s,background .25s}
-.arrivals button:hover,.arrivals button:focus-visible{border-color:var(--phos);
-  color:var(--phos-hot);background:rgba(255,179,71,.05);outline:none}
-.arrivals button:focus-visible{box-shadow:0 0 0 1px var(--phos)}
-@media (max-width:520px){
-  .arrivals{flex-direction:column}
-  .arrivals button{width:100%;text-align:left}
-  .recrow span:first-child{min-width:7rem}
-}
-@media (prefers-reduced-motion:reduce){.arrival *{animation:none!important}}
-</style>
-</head><body>
-<div class="wrap"><main class="room arrival">
-  <div class="eyebrow">
-    <span class="dot"></span>
-    <span>The Waiting Room</span>
-    <b>${v.visitCount > 0 ? `visit ${v.visitCount + 1}` : 'first visit'}</b>
-  </div>
-
-  <h1>${esc(v.claim)}</h1>
-  <p class="sub">${esc(v.sub)}</p>
-
-  <form class="record" method="post" action="/bff/arrive">
-    <div class="rechead">Arrival record / ${esc(v.serial)}</div>
-    <div class="recrow"><span>time received</span><b>00:00</b></div>
-    <div class="recrow"><span>origin</span><b>unconfirmed</b></div>
-    <div class="recrow pending"><span>reason</span><b>[${esc(v.reason)}]</b></div>
-    <div class="arrivals">
-      ${v.options.map((o) => `<button type="submit" name="reason" value="${esc(o.id)}">${esc(o.label)}</button>`).join('')}
-    </div>
-  </form>
-</main></div>
-${chatRail(v.lines)}
-${v.needsConsent ? consentBar() : ''}
-<script type="module">
-document.body.classList.add('sk-' + ${JSON.stringify(v.variant.skin)});
-${CONSENT_JS}
-// Enhancement only. The form above already works with this file absent.
-document.querySelectorAll('.arrivals button').forEach(b => {
-  b.addEventListener('click', () => {
-    document.body.style.transition = 'opacity .3s';
-    document.body.style.opacity = '0.35';
-  });
 });
 </script>
 </body></html>`;
