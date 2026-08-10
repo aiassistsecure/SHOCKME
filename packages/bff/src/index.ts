@@ -29,7 +29,7 @@ import { AMBIENT } from '../../engine/src/world.ts';
 import { Imagine, validateLine, IMAGINE_BUILD } from '../../engine/src/imagine.ts';
 import { admit } from '../../engine/src/publish.ts';
 import { ARRIVAL_OPTIONS, arrivalPrompt, serialFor, readArrival, filedLine, anomalyFor, type ArrivalChoice } from '../../engine/src/experiences/arrival.ts';
-import { V2_ROOM_NAMES } from '../../engine/src/experiences/rooms-v2.ts';
+import { V2_ROOM_NAMES, REGISTRY } from '../../engine/src/experiences/rooms-v2.ts';
 import { factsFrom, hasArrived, planFrom, persistProjection, loadProjection, viewForDiscovery, moduleForScene } from './v2.ts';
 import { materialise } from '../../engine/src/capsules.ts';
 import { currentTick, inhabitantsAt, observeLine, HANDLE_STEMS, TICK_MS, type ObservedLine } from '../../engine/src/world.ts';
@@ -1439,8 +1439,20 @@ async function main(): Promise<void> {
   }
   server.listen(PORT, () => {
     startPump();
+    /*
+     * The discovery catalogue is NOT part of the registered experience, so the
+     * `scenes` line cannot tell you whether the new rooms loaded — it reads 13
+     * either way. Printing the catalogue means a deploy that shipped without
+     * them is visible at boot, instead of only after playing for them. Every
+     * number here is derived from the registry, never written down twice.
+     */
+    const discoverable = REGISTRY.filter((m) => !ALL_ROOM_IDS.includes(m.scene.id as never)).length;
+    const variants = REGISTRY.reduce((n, m) => n + m.variants.length, 0);
+    const slots = REGISTRY.reduce((n, m) => n + m.slots.length, 0);
     banner(imagineStatus, [
       `\x1b[2mscenes  \x1b[0m${SCENES.length}   \x1b[2mregistry \x1b[0m${wrote ? 'seeded' : 'already current (idempotent)'}`,
+      `\x1b[2mrooms   \x1b[0m${TOTAL_ROOMS} core \x1b[2m+\x1b[0m ${discoverable} discoverable   ` +
+      `\x1b[2m${REGISTRY.length} modules · ${variants} variants · ${slots} slots\x1b[0m`,
     ]);
   });
 }
