@@ -20,6 +20,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { Repo } from '../../engine/src/repo.ts';
 import type { NedbRow } from '../../engine/src/nedb.ts';
+import { BASELINE, hasBaseline } from '../../engine/src/baseline.ts';
 import { TICK_MS, currentTick, populationAt } from '../../engine/src/world.ts';
 
 export const ADMIN_TOKEN = process.env.SHOCKME_ADMIN_TOKEN ?? '';
@@ -291,6 +292,37 @@ code{font-size:.72rem;color:var(--phos-hot);word-break:break-all}
   <div class="card"><div class="big">${s.utterances}</div><div class="lbl">spoken</div></div>
   <div class="card"><div class="big">${s.replays}</div><div class="lbl">replays</div></div>
 </div>
+<div class="note">Every figure above is <strong>measured</strong> — counted from the
+surviving append-only log, nothing carried over. If a baseline is configured, the
+numbers the ROOM shows visitors are larger; the block below states the difference
+so the two can never be confused.</div>
+
+${hasBaseline() ? `
+<h2>Carried over</h2>
+<div class="grid">
+  <div class="card"><div class="big">${BASELINE.visitors}</div><div class="lbl">baseline visitors</div></div>
+  <div class="card"><div class="big">${s.visitors + BASELINE.visitors}</div><div class="lbl">shown to visitors</div></div>
+  <div class="card"><div class="big">${BASELINE.finished}</div><div class="lbl">baseline finished</div></div>
+  <div class="card"><div class="big">${s.completed + BASELINE.finished}</div><div class="lbl">shown as finished</div></div>
+</div>
+<div class="note">
+<strong>${BASELINE.visitors.toLocaleString()} people played before ${esc(BASELINE.lostOn || 'the reset')} and that log is gone.</strong>
+${esc(BASELINE.reason)}.
+<br><br>
+The offset is added to the three counters that describe <em>the world</em> — how many
+have been here, which number you are, how many reached the end — because those are
+real historical quantities that merely went unlogged. It is <strong>NOT</strong>
+added to anything describing <em>behaviour</em>: the funnel, median dwell, quoted
+sentences, chair distributions and drawings below are all still measured from real
+events only, and will refill on their own.
+<br><br>
+Fabricated visitor rows were considered and rejected. They would have made the room
+announce a large arrival count against a near-zero completion rate, collapsed the
+median dwell that two stings quote, and left the recital with nothing real to
+quote — and in an append-only store they could never have been removed. See
+<code>engine/src/baseline.ts</code>.
+</div>
+` : ''}
 
 <h2>Funnel</h2>
 <table>
