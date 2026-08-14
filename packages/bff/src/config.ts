@@ -38,6 +38,15 @@ export const CONFIG = {
   chat: flag('SHOCKME_CHAT', true),
   imagineUrl: process.env.IMAGINE_URL ?? 'http://127.0.0.1:8081',
 
+  /*
+   * WHICH ROUTE WRITES THE ROOM.
+   *   llamacpp  local llama-server on imagineUrl                (default)
+   *   aias      AiAS gateway -> PIN -> muse-local:latest
+   * Default is llamacpp so an existing box that pulls and restarts is
+   * unchanged. See engine/src/imagine-aias.ts for the measured tradeoffs.
+   */
+  imagineProvider: (process.env.SHOCKME_IMAGINE_PROVIDER ?? 'llamacpp').toLowerCase(),
+
   worldSeed: process.env.SHOCKME_WORLD_SEED ?? 'the-room-remembers',
 
   /**
@@ -62,7 +71,9 @@ export function banner(imagine: ImagineStatus, extra: string[] = []): void {
   rows.push(['voices', CONFIG.chat ? `${G}open${X} ${D}visitors can speak${X}` : `${D}closed (SHOCKME_CHAT=0)${X}`]);
 
   if (imagine === 'on') {
-    rows.push(['voice', `${G}imagine${X}  ${D}${CONFIG.imagineUrl}${X}`]);
+    rows.push(['voice', CONFIG.imagineProvider === 'llamacpp'
+      ? `${G}imagine${X}  ${D}${CONFIG.imagineUrl}${X}`
+      : `${G}${process.env.AIASSIST_MODEL ?? 'muse-local:latest'}${X}  ${D}via aias/${process.env.AIASSIST_PROVIDER ?? 'pin'}${X}`]);
   } else if (imagine === 'off-by-flag') {
     rows.push(['voice', `${D}curated corpus${X}  ${D}(SHOCKME_IMAGINE=0)${X}`]);
   } else {
