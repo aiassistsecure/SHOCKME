@@ -61,7 +61,7 @@
  * reconsidered from scratch, and that is a deliberate tripwire.
  */
 
-import type { PromptParts, Transport } from './imagine.ts';
+import type { CompleteOpts, PromptParts, Transport } from './imagine.ts';
 
 export const AIAS_BASE = (process.env.AIASSIST_BASE_URL ?? 'https://api.aiassist.net').replace(/\/+$/, '');
 export const AIAS_PROVIDER = process.env.AIASSIST_PROVIDER ?? 'pin';
@@ -148,7 +148,7 @@ export class AiasTransport implements Transport {
   /** Let the caller force a re-probe after a transport error. */
   reset(): void { this.healthy = null; }
 
-  async complete(parts: PromptParts, seed: number): Promise<string> {
+  async complete(parts: PromptParts, seed: number, opts: CompleteOpts = {}): Promise<string> {
     /*
      * The assistant turn carries the prefill, mirroring what the llama.cpp
      * path does inside its raw chat template. Two reasons it matters here:
@@ -165,7 +165,10 @@ export class AiasTransport implements Transport {
     const messages = [
       { role: 'system', content: parts.system },
       { role: 'user', content: parts.user },
-      { role: 'assistant', content: parts.prefill },
+      // An empty prefill would send an empty assistant turn, which some
+      // gateways reject outright. The drawing has no opening sentinel to
+      // prefill, so it simply omits the turn.
+      ...(parts.prefill ? [{ role: 'assistant', content: parts.prefill }] : []),
     ];
 
     const res = await fetch(`${this.base}/v1/chat/completions`, {
@@ -174,13 +177,13 @@ export class AiasTransport implements Transport {
       body: JSON.stringify({
         model: this.model,
         messages,
-        max_tokens: 48,
-        temperature: 1.0,
-        top_p: 0.95,
+        max_tokens: opts.maxTokens ?? 48,
+        temperature: opts.temperature ?? 1.0,
+        top_p: opts.topP ?? 0.95,
         // Accepted and, on this route, not actually honoured — the closing
         // sentinel comes back in the body regardless. Sent anyway because it
         // costs nothing and the parser strips it either way.
-        stop: ['<<<END>>>'],
+        stop: opts.stop ?? ['<<<END>>>'],
         // Passed through for provenance. NOT relied on: verified
         // non-reproducible on this route. See the determinism note above.
         seed,
