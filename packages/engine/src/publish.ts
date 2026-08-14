@@ -86,6 +86,17 @@ export interface AdmitOpts {
   meta?: Record<string, unknown>;
   /** Injectable for tests. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Cap the retry budget. Defaults to MAX_ATTEMPTS (5), which is right when a
+   * generation costs about a second.
+   *
+   * The AiAS → PIN → Muse route costs 19–22s per call, so five attempts is up
+   * to 100 seconds of wall clock for one line — by which point the ticks it was
+   * generating for have already been served from the corpus and expired. The
+   * pump passes 2 on that route. Clamped to the backoff table's length because
+   * a higher number would index past it.
+   */
+  maxAttempts?: number;
 }
 
 export interface AdmitResult {
@@ -115,8 +126,9 @@ export async function admit(db: Nedb, opts: AdmitOpts): Promise<AdmitResult> {
   const stream = opts.stream ?? 'broadcast';
   const sleep = opts.sleep ?? defaultSleep;
   const rejected: string[] = [];
+  const budget = Math.max(1, Math.min(opts.maxAttempts ?? MAX_ATTEMPTS, MAX_ATTEMPTS));
 
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < budget; attempt++) {
     if (attempt > 0) {
       await sleep(Math.round(BACKOFF_MS[attempt - 1]! * jitter(opts.jitterSeed ?? stream, attempt)));
     }
@@ -159,5 +171,5 @@ export async function admit(db: Nedb, opts: AdmitOpts): Promise<AdmitResult> {
    * against it would eventually starve the room into silence. Never spin,
    * never fill the rail with a near-duplicate apology.
    */
-  return { text: opts.fallback(), source: 'curated', attempts: MAX_ATTEMPTS, rejected };
+  return { text: opts.fallback(), source: 'curated', attempts: budget, rejected };
 }
