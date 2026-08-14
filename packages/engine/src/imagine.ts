@@ -30,6 +30,7 @@
  *   boundary explicit and extract it verbatim — the content is never re-parsed.
  */
 
+import { AIAS_BASE, AiasTransport } from './imagine-aias.ts';
 import { normaliseSentinel } from './imagine-hotpatch.ts';
 import { Rng } from './rng.ts';
 import { AMBIENT, WORLD_SEED } from './world.ts';
@@ -108,11 +109,46 @@ did yours have the door on the left
  *     failure impossible: the model never writes the tag it keeps getting
  *     wrong, it only writes the payload and the closer.
  */
-function buildPrompt(topic: string): string {
+/**
+ * ONE PROMPT, TWO WIRE FORMATS.
+ *
+ * The local path speaks llama.cpp's /completion, which wants the chat template
+ * baked into a single string. The AiAS path speaks /v1/chat/completions, which
+ * wants structured roles. Those are transport concerns, so the prompt is
+ * expressed once as parts and each transport renders it its own way.
+ *
+ * This is the same "one rule, one place" fix as the chair count and the footer
+ * heights: two hand-maintained copies of this prompt would drift within a week,
+ * and a drifted system prompt is invisible until the room stops sounding like
+ * one place.
+ */
+export interface PromptParts { system: string; user: string; prefill: string }
+
+/** A way of getting a completion. Both transports satisfy this. */
+export interface Transport {
+  readonly id: string;
+  readonly build: string;
+  /** 'fast' = local, sub-second. 'slow' = over the network, tens of seconds. */
+  readonly latency: 'fast' | 'slow';
+  readonly timeoutMs: number;
+  available(): Promise<boolean>;
+  complete(parts: PromptParts, seed: number): Promise<string>;
+  reset(): void;
+}
+
+/** Loose comparison for the topic-echo check: case, punctuation, spacing. */
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+export function promptFor(topic: string): PromptParts {
+  return { system: SYSTEM, user: topic, prefill: '<<<LINE>>>' };
+}
+
+/** llama.cpp's raw chat template, unchanged from the original buildPrompt. */
+function renderLlamaCpp(parts: PromptParts): string {
   return (
-    `<|im_start|>system\n${SYSTEM}<|im_end|>\n` +
-    `<|im_start|>user\n${topic}<|im_end|>\n` +
-    `<|im_start|>assistant\n<think>\n\n</think>\n\n<<<LINE>>>`
+    `<|im_start|>system\n${parts.system}<|im_end|>\n` +
+    `<|im_start|>user\n${parts.user}<|im_end|>\n` +
+    `<|im_start|>assistant\n<think>\n\n</think>\n\n${parts.prefill}`
   );
 }
 
@@ -174,28 +210,32 @@ export interface GeneratedLine {
   build: string;
   attempts: number;
   rejected: string[];
-  patched: number;
   /** How many completions needed sentinel repair (see imagine-hotpatch). */
   patched: number;
+  /** Which transport produced it: 'llamacpp' (local) or 'aias' (PIN → Muse). */
+  transport: string;
 }
 
-export class Imagine {
+/**
+ * The original local transport: llama-server on 127.0.0.1. Byte-for-byte the
+ * same request it has always sent — same endpoint, same sampler settings, same
+ * 20s timeout, same `cache_prompt`. Nothing about the local path changed when
+ * the gateway route was added, which is the point.
+ */
+export class LlamaCppTransport implements Transport {
+  readonly id = 'llamacpp';
+  readonly build = IMAGINE_BUILD;
+  readonly latency = 'fast' as const;
+  readonly timeoutMs = 20_000;
+
   readonly url: string;
-  readonly enabled: boolean;
   private healthy: boolean | null = null;
 
-  /**
-   * `enabled` comes from SHOCKME_IMAGINE (default ON) and is decided by the
-   * caller at boot, never sniffed here. If it is false we never touch the
-   * network at all — "off" means off, not "off unless something answers".
-   */
-  constructor(url: string = IMAGINE_URL, enabled = true) {
+  constructor(url: string = IMAGINE_URL) {
     this.url = url.replace(/\/+$/, '');
-    this.enabled = enabled;
   }
 
   async available(): Promise<boolean> {
-    if (!this.enabled) return false;
     if (this.healthy !== null) return this.healthy;
     try {
       const r = await fetch(`${this.url}/health`, { signal: AbortSignal.timeout(2500) });
@@ -206,12 +246,14 @@ export class Imagine {
     return this.healthy;
   }
 
-  private async complete(prompt: string, seed: number): Promise<string> {
+  reset(): void { this.healthy = null; }
+
+  async complete(parts: PromptParts, seed: number): Promise<string> {
     const res = await fetch(`${this.url}/completion`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        prompt,
+        prompt: renderLlamaCpp(parts),
         seed,
         n_predict: 48,
         temperature: 1.0,
@@ -222,11 +264,42 @@ export class Imagine {
         stop: ['<<<END>>>', '<|im_end|>'],
         cache_prompt: true,
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) throw new Error(`imagine ${res.status}`);
     const data = (await res.json()) as { content?: string };
     return data.content ?? '';
+  }
+}
+
+export class Imagine {
+  readonly enabled: boolean;
+  readonly transport: Transport;
+
+  /** Kept so existing callers and the admin panel can still read `.url`. */
+  get url(): string { return this.transport instanceof LlamaCppTransport ? this.transport.url : AIAS_BASE; }
+  /** What the pump needs to know to schedule itself. */
+  get latency(): 'fast' | 'slow' { return this.transport.latency; }
+
+  /**
+   * `enabled` comes from SHOCKME_IMAGINE (default ON) and is decided by the
+   * caller at boot, never sniffed here. If it is false we never touch the
+   * network at all — "off" means off, not "off unless something answers".
+   *
+   * The first argument still accepts a URL string so every existing call site
+   * — `new Imagine(CONFIG.imagineUrl, CONFIG.imagine)` — keeps working
+   * untouched. Pass a Transport instead to choose the route explicitly.
+   */
+  constructor(urlOrTransport: string | Transport = IMAGINE_URL, enabled = true) {
+    this.enabled = enabled;
+    this.transport = typeof urlOrTransport === 'string'
+      ? new LlamaCppTransport(urlOrTransport)
+      : urlOrTransport;
+  }
+
+  async available(): Promise<boolean> {
+    if (!this.enabled) return false;
+    return this.transport.available();
   }
 
   /**
@@ -245,7 +318,7 @@ export class Imagine {
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const seed = baseSeed + attempt;
         try {
-          const raw = await this.complete(buildPrompt(topic), seed);
+          const raw = await this.transport.complete(promptFor(topic), seed);
           // The opener is prefilled, so `raw` is normally the payload onward.
           // The hotpatch absorbs the cases where the model emits its own
           // malformed sentinel anyway — see imagine-hotpatch.ts for the
@@ -253,13 +326,31 @@ export class Imagine {
           const { text, patched } = normaliseSentinel(raw, 'LINE');
           if (patched) patchedCount++;
           const v = validateLine(text);
-          if (v.ok) {
-            return { text, source: 'imagine', topic, seed, build: IMAGINE_BUILD, attempts: attempt + 1, rejected, patched: patchedCount };
+          /*
+           * TOPIC ECHO. Measured on the Muse route: asked for a line about
+           * "whether your version was different from theirs", it returned
+           * exactly that string. It is lowercase, seven words and contains no
+           * banned term, so validateLine passes it happily — the topics are
+           * written in the room's own register, which is what makes an echo
+           * both plausible and useless.
+           *
+           * Checked here rather than in validateLine because this is the only
+           * place the topic is in scope, and because it is a property of the
+           * REQUEST, not of the line. A prompt read back to you is not a line.
+           */
+          const echo = norm(text) === norm(topic);
+          if (echo) rejected.push(`topic echo: ${text.slice(0, 48)}`);
+          if (v.ok && !echo) {
+            return {
+              text, source: 'imagine', topic, seed,
+              build: this.transport.build, attempts: attempt + 1,
+              rejected, patched: patchedCount, transport: this.transport.id,
+            };
           }
           rejected.push(`${v.reason}: ${text.slice(0, 48)}`);
         } catch (e) {
-          rejected.push(`error: ${String(e).slice(0, 48)}`);
-          this.healthy = null; // re-probe next time
+          rejected.push(`error: ${String(e).slice(0, 120)}`);
+          this.transport.reset(); // re-probe next time
           break;
         }
       }
@@ -270,10 +361,33 @@ export class Imagine {
       source: 'corpus',
       topic,
       seed: baseSeed,
-      build: IMAGINE_BUILD,
+      build: this.transport.build,
       attempts: maxAttempts,
       rejected,
       patched: patchedCount,
+      transport: this.transport.id,
     };
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Which route                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * SHOCKME_IMAGINE_PROVIDER picks the transport. DEFAULT IS `llamacpp`, so a box
+ * that pulls this change and restarts behaves exactly as it did before —
+ * opting in to the gateway is a deliberate act, not a surprise.
+ *
+ *   llamacpp  local llama-server on IMAGINE_URL          (default)
+ *   aias      AiAS gateway → PIN → muse-local:latest
+ *
+ * `aias` needs AIASSIST_API_KEY. Without it AiasTransport.available() is false
+ * and every line comes from the curated corpus — the room still works, which
+ * is the same failure posture the local path has always had.
+ */
+export function transportFromEnv(): Transport {
+  const want = (process.env.SHOCKME_IMAGINE_PROVIDER ?? 'llamacpp').toLowerCase();
+  if (want === 'aias' || want === 'pin' || want === 'muse') return new AiasTransport();
+  return new LlamaCppTransport();
 }

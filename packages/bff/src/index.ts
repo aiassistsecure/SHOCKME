@@ -26,7 +26,7 @@ import { renderRoom, renderArtifact } from './render.ts';
 import { CONFIG, banner, type ImagineStatus } from './config.ts';
 import { Rng } from '../../engine/src/rng.ts';
 import { AMBIENT } from '../../engine/src/world.ts';
-import { Imagine, validateLine, IMAGINE_BUILD } from '../../engine/src/imagine.ts';
+import { Imagine, LlamaCppTransport, transportFromEnv, validateLine, IMAGINE_BUILD } from '../../engine/src/imagine.ts';
 import { admit } from '../../engine/src/publish.ts';
 import { ARRIVAL_OPTIONS, arrivalPrompt, serialFor, readArrival, filedLine, anomalyFor, type ArrivalChoice } from '../../engine/src/experiences/arrival.ts';
 import { V2_ROOM_NAMES, REGISTRY } from '../../engine/src/experiences/rooms-v2.ts';
@@ -54,7 +54,15 @@ import {
 
 const PORT = CONFIG.port;
 const repo = new Repo(new Nedb({ url: CONFIG.nedbUrl, db: CONFIG.nedbDb }));
-const imagine = new Imagine(CONFIG.imagineUrl, CONFIG.imagine);
+/*
+ * The transport is chosen by SHOCKME_IMAGINE_PROVIDER (default llamacpp, so
+ * nothing changes for an existing box). CONFIG.imagineUrl still drives the
+ * local route; the gateway route reads its own AIASSIST_* vars.
+ */
+const imagineTransport = CONFIG.imagineProvider === 'llamacpp'
+  ? new LlamaCppTransport(CONFIG.imagineUrl)
+  : transportFromEnv();
+const imagine = new Imagine(imagineTransport, CONFIG.imagine);
 let imagineStatus: ImagineStatus = CONFIG.imagine ? 'unreachable' : 'off-by-flag';
 
 /**
@@ -97,7 +105,39 @@ function roomLines(tick: number, observerSeed: string, lastChoice?: string): Obs
 /** Generate a little ahead of the clock, one line at a time, never blocking. */
 function startPump(): void {
   if (!CONFIG.imagine) return;
-  const LOOKAHEAD = 4;
+
+  /*
+   * LOOKAHEAD IS A FUNCTION OF HOW SLOW THE MODEL IS.
+   *
+   * It was a flat 4 ticks — 16 seconds of buffer — which is generous for a
+   * local llama-server that answers in about a second.
+   *
+   * The AiAS → PIN → Muse route measures 19–22s typical and was seen at 47s.
+   * ONE generation therefore outlasts the entire old window: by the time a
+   * line for tick N arrives, N is already in the past, the cache miss has long
+   * since been served from the corpus, and the pump has achieved nothing. The
+   * rail would have sat on curated fallback forever while quietly burning
+   * gateway calls — working, plausible, and completely pointless.
+   *
+   * 40 ticks is 160s of buffer, comfortably past the observed tail. The
+   * interval also backs off: polling every 400ms is right when a pass costs a
+   * second, and pure waste when `running` will be true for the next 20.
+   */
+  const slow = imagine.latency === 'slow';
+  const LOOKAHEAD = slow ? 40 : 4;
+  /*
+   * The `running` guard already prevents overlap, so a short interval on the
+   * slow route costs one cheap map lookup per pass. Measured 2-5s per line via
+   * the gateway once the assistant prefill is in place, so 600ms keeps the pump
+   * filling steadily without hammering.
+   */
+  const EVERY_MS = slow ? 600 : 400;
+  /*
+   * And the fence retries less on the slow route. Five bounded attempts is
+   * cheap locally and is 100 seconds of wall clock here — long enough that the
+   * ticks it was generating for have expired before it gives up.
+   */
+  const FENCE_ATTEMPTS = slow ? 2 : 5;
   let running = false;
   setInterval(async () => {
     if (running) return;
@@ -137,7 +177,8 @@ function startPump(): void {
             screen: (text) => validateLine(text),
             stream: 'broadcast',
             jitterSeed: key,
-            meta: { tick: t, build: IMAGINE_BUILD },
+            maxAttempts: FENCE_ATTEMPTS,
+            meta: { tick: t, build: imagine.transport.build, transport: imagine.transport.id },
           });
           lineCache.set(key, admitted.text);
           if (lineCache.size > 4000) lineCache.delete(lineCache.keys().next().value!);
@@ -146,7 +187,7 @@ function startPump(): void {
       }
     } catch { /* pump failure is never fatal; corpus covers it */ }
     finally { running = false; }
-  }, 400);
+  }, EVERY_MS);
 }
 
 /* ---------------- live voices ---------------- */
@@ -830,7 +871,13 @@ const server = createServer(async (req, res) => {
       return json(res, {
         ok: true, tick: currentTick(),
         voice: imagineStatus,            // 'on' | 'off-by-flag' | 'unreachable'
-        imagineUrl: CONFIG.imagine ? CONFIG.imagineUrl : null,
+        // The URL of the route ACTUALLY in use. Reporting the local
+        // llama-server address while every line comes from a gateway is how a
+        // health endpoint sends you debugging the wrong process.
+        imagineUrl: CONFIG.imagine ? imagine.url : null,
+        imagineTransport: CONFIG.imagine ? imagine.transport.id : null,
+        imagineBuild: CONFIG.imagine ? imagine.transport.build : null,
+        imagineLatency: CONFIG.imagine ? imagine.latency : null,
       });
     }
 
