@@ -1094,6 +1094,26 @@ const server = createServer(async (req, res) => {
         /^[^\s@]+@[^\s@.]+\.[^\s@]{2,}$/.test(raw) && !/[\r\n,;<>]/.test(raw);
       if (!ok) return json(res, { ok: false, message: 'That is not an address the room can reach.' }, 400);
 
+      /*
+       * THE LOCAL PART IS ATTACKER-CONTROLLED TEXT, AND IT GETS DISPLAYED.
+       *
+       * Somebody signed up as youareabigotedfaggotfilthernigger@gmail.com. It
+       * was stored and rendered in the back room, because this endpoint had no
+       * screening at all — screen() was wired to chat and to the threshold
+       * answer, and nobody thought of the email as a text field. It is one.
+       *
+       * An address is also a delivery target: anything stored here may end up
+       * in a mail tool, an export, or a CSV somebody opens at work. Same
+       * screening as every other place a stranger can type.
+       */
+      const localPart = raw.split('@')[0] ?? '';
+      const clean = screen(localPart.replace(/[._+-]+/g, ' '));
+      if (!clean.ok) {
+        // Same reply as a malformed address. Never explain what tripped it —
+        // an abuse filter that reports its own rules is a filter you can tune.
+        return json(res, { ok: false, message: 'That is not an address the room can reach.' }, 400);
+      }
+
       try {
         await repo.addSubscriber(raw);
       } catch (err) {
