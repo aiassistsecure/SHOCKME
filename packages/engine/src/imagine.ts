@@ -124,6 +124,20 @@ did yours have the door on the left
  */
 export interface PromptParts { system: string; user: string; prefill: string }
 
+/**
+ * Per-call sampler settings. The ambient line and the drawing want genuinely
+ * different ones — the drawing runs hotter, longer, and stops on a code fence
+ * rather than a sentinel — so they are arguments rather than constants baked
+ * into each transport.
+ */
+export interface CompleteOpts {
+  maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  repeatPenalty?: number;
+  stop?: string[];
+}
+
 /** A way of getting a completion. Both transports satisfy this. */
 export interface Transport {
   readonly id: string;
@@ -132,7 +146,7 @@ export interface Transport {
   readonly latency: 'fast' | 'slow';
   readonly timeoutMs: number;
   available(): Promise<boolean>;
-  complete(parts: PromptParts, seed: number): Promise<string>;
+  complete(parts: PromptParts, seed: number, opts?: CompleteOpts): Promise<string>;
   reset(): void;
 }
 
@@ -248,20 +262,20 @@ export class LlamaCppTransport implements Transport {
 
   reset(): void { this.healthy = null; }
 
-  async complete(parts: PromptParts, seed: number): Promise<string> {
+  async complete(parts: PromptParts, seed: number, opts: CompleteOpts = {}): Promise<string> {
     const res = await fetch(`${this.url}/completion`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         prompt: renderLlamaCpp(parts),
         seed,
-        n_predict: 48,
-        temperature: 1.0,
-        top_p: 0.95,
-        repeat_penalty: 1.12,
+        n_predict: opts.maxTokens ?? 48,
+        temperature: opts.temperature ?? 1.0,
+        top_p: opts.topP ?? 0.95,
+        repeat_penalty: opts.repeatPenalty ?? 1.12,
         // <<<END>>> terminates the payload; no newline stop token, so a
         // stray newline can no longer truncate the line mid-sentence.
-        stop: ['<<<END>>>', '<|im_end|>'],
+        stop: opts.stop ?? ['<<<END>>>', '<|im_end|>'],
         cache_prompt: true,
       }),
       signal: AbortSignal.timeout(this.timeoutMs),

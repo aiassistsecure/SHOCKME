@@ -1241,7 +1241,7 @@ const server = createServer(async (req, res) => {
       let d = drawings.get(ctx.sessionId);
       if (!d) {
         d = CONFIG.imagine
-          ? await draw(sess.seed, CONFIG.imagineUrl)
+          ? await draw(sess.seed, imagine.transport)
           : { subject: subjectFor(sess.seed), lines: [], caption: 'It was not asked today.', blank: true, ms: 0 };
         drawings.set(ctx.sessionId, d);
         if (drawings.size > 3000) drawings.delete(drawings.keys().next().value!);

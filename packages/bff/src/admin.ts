@@ -57,7 +57,7 @@ export interface Stats {
   engine: { ok: boolean; seq: number; objects: number; tampered: number };
   live: { tick: number; population: number; connections: number };
   spokenPerSession: number;
-  drawings: { total: number; blank: number; avgMs: number; subjects: { subject: string; n: number }[] };
+  drawings: { total: number; blank: number; unreachable: number; avgMs: number; subjects: { subject: string; n: number }[] };
   /** Opt-in only, and deliberately NOT joined to behaviour. Address + when. */
   subs: { email: string; tick: number }[];
   /** Registered first-party properties, and what the pixel has collected. */
@@ -194,16 +194,17 @@ export async function gather(repo: Repo, connections: number): Promise<Stats> {
     drawings: (() => {
       const d = evOf('drawn');
       const subj = new Map<string, number>();
-      let ms = 0, blank = 0;
+      let ms = 0, blank = 0, unreachable = 0;
       for (const e of d) {
         const p = e.payload as Record<string, unknown>;
         const key = String(p?.subject ?? '?');
         subj.set(key, (subj.get(key) ?? 0) + 1);
         ms += Number(p?.ms ?? 0);
         if (p?.blank) blank++;
+        if (p?.unreachable) unreachable++;
       }
       return {
-        total: d.length, blank,
+        total: d.length, blank, unreachable,
         avgMs: d.length ? Math.round(ms / d.length) : 0,
         subjects: [...subj.entries()].map(([subject, n]) => ({ subject, n })).sort((a, b) => b.n - a.n),
       };
@@ -399,6 +400,10 @@ exactly the quiet linkage the rest of this system refuses to do.</div>
 <h2>The room's drawings</h2>
 ${row('attempts', s.drawings.total)}
 ${row('produced nothing', `${s.drawings.blank}`, `${pct(s.drawings.blank, s.drawings.total)}% — the strongest outcome`)}
+${s.drawings.unreachable > 0
+  ? row('COULD NOT ASK', `${s.drawings.unreachable}`,
+      `${pct(s.drawings.unreachable, s.drawings.total)}% — the model was UNREACHABLE, not thoughtful`)
+  : row('could not ask', '0', 'every blank above was a real attempt')}
 ${row('average time', `${(s.drawings.avgMs / 1000).toFixed(1)}s`, 'you watch it struggle; that is the bit')}
 <table>
 <tr><th>asked to draw</th><th class="num">n</th></tr>
@@ -407,7 +412,14 @@ ${s.drawings.subjects.length ? s.drawings.subjects.map((d) => `<tr><td>${esc(d.s
 </table>
 <div class="note">A blank is not an error. Asked to draw itself, or the sound
 a lamp makes, the room producing <b>nothing</b> is the best output available —
-so blanks are counted as successes, never retried, and never repaired.</div>
+so blanks are counted as successes, never retried, and never repaired.
+<br><br>
+<strong>Which is exactly why COULD NOT ASK is counted separately.</strong> An
+unreachable model also produces a blank, and to a visitor it reads identically —
+deliberately, because an error message would be worse. But it means a completely dead
+backend can hide behind the product's most admired feature: 100% failure looks like
+100% profundity. If that row is non-zero, nothing is answering — check the voice row
+in the boot banner and <code>/health</code>.</div>
 
 <h2>Engine</h2>
 ${row('verify', s.engine.ok ? 'intact' : 'FAILED', s.engine.ok ? 'hash chain unbroken' : 'investigate immediately')}
