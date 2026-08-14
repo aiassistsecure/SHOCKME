@@ -26,6 +26,7 @@ import { renderRoom, renderArtifact } from './render.ts';
 import { CONFIG, banner, type ImagineStatus } from './config.ts';
 import { Rng } from '../../engine/src/rng.ts';
 import { AMBIENT } from '../../engine/src/world.ts';
+import { BASELINE, hasBaseline, worldCounters } from '../../engine/src/baseline.ts';
 import { Imagine, LlamaCppTransport, transportFromEnv, validateLine, IMAGINE_BUILD } from '../../engine/src/imagine.ts';
 import { admit } from '../../engine/src/publish.ts';
 import { ARRIVAL_OPTIONS, arrivalPrompt, serialFor, readArrival, filedLine, anomalyFor, type ArrivalChoice } from '../../engine/src/experiences/arrival.ts';
@@ -420,11 +421,26 @@ async function buildFacts(
 
   const counted = myEvents.find((e) => e.kind === 'counted');
 
+  /*
+   * WORLD-FACING COUNTERS CARRY THE PRE-RESET BASELINE.
+   *
+   * 997 people played before the 2026-08-14 rebuild and that log is gone. The
+   * offset is applied HERE, in one place, to the three counters that describe
+   * the world rather than the behaviour. Everything else in Facts -- medianMs,
+   * quote, path, chairs -- stays measured from the surviving log, because a
+   * baseline cannot supply those and faking them is what would actually break
+   * the room. See engine/src/baseline.ts for why this is an offset and not 996
+   * fabricated visitor rows.
+   */
+  const realIndex = visitors.findIndex((v) => String(v.visitorId) === ctx.visitorId) + 1 || visitors.length;
+  const realFinished = new Set(allEvents.filter((e) => e.kind === 'choice' && payload(e).to === 'end')
+    .map((e) => String(e.sessionId))).size;
+  const world = worldCounters(visitors.length, realIndex, realFinished);
+
   return {
-    visitorNumber: visitors.findIndex((v) => String(v.visitorId) === ctx.visitorId) + 1 || visitors.length,
-    totalVisitors: visitors.length,
-    finished: new Set(allEvents.filter((e) => e.kind === 'choice' && payload(e).to === 'end')
-      .map((e) => String(e.sessionId))).size,
+    visitorNumber: world.visitorNumber,
+    totalVisitors: world.totalVisitors,
+    finished: world.finished,
     yourMs,
     medianMs,
     quote: pick ? {
